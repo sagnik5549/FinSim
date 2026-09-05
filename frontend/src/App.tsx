@@ -366,9 +366,8 @@ export default function App() {
           <div>
             <span className="text-[#8b949e] text-[10px] block">TOTAL RETURN</span>
             <span
-              className={`stat-value ${
-                financials.total_return_pct >= 0 ? 'text-gain' : 'text-loss'
-              }`}
+              className={`stat-value ${financials.total_return_pct >= 0 ? 'text-gain' : 'text-loss'
+                }`}
             >
               {financials.total_return_pct >= 0 ? '+' : ''}
               {financials.total_return_pct.toFixed(2)}%
@@ -390,13 +389,12 @@ export default function App() {
               <span className="text-[#8b949e]">({time.day_of_week.slice(0, 3)})</span>
               <span className="text-white font-mono">{String(time.game_hour).padStart(2, '0')}:00</span>
               <span
-                className={`badge ${
-                  time.market_status === 'OPEN'
+                className={`badge ${time.market_status === 'OPEN'
                     ? 'badge-gain'
                     : time.market_status === 'PRE_MARKET'
-                    ? 'badge-warn'
-                    : 'badge-loss'
-                }`}
+                      ? 'badge-warn'
+                      : 'badge-loss'
+                  }`}
               >
                 {time.market_status}
               </span>
@@ -424,9 +422,8 @@ export default function App() {
               <span className="text-[#8b949e] font-semibold">{idx.name}</span>
               <span className="text-white font-mono">{idx.value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
               <span
-                className={`text-[10px] font-bold ${
-                  idx.change_pct >= 0 ? 'text-gain' : 'text-loss'
-                }`}
+                className={`text-[10px] font-bold ${idx.change_pct >= 0 ? 'text-gain' : 'text-loss'
+                  }`}
               >
                 {idx.change_pct >= 0 ? '+' : ''}
                 {idx.change_pct.toFixed(2)}%
@@ -657,9 +654,8 @@ export default function App() {
                   ₹{selectedStock.current_price.toFixed(2)}
                 </div>
                 <div
-                  className={`text-xs font-mono font-bold ${
-                    selectedStock.daily_return >= 0 ? 'text-gain' : 'text-loss'
-                  }`}
+                  className={`text-xs font-mono font-bold ${selectedStock.daily_return >= 0 ? 'text-gain' : 'text-loss'
+                    }`}
                 >
                   {selectedStock.daily_return >= 0 ? '+' : ''}
                   {(selectedStock.daily_return * 100).toFixed(2)}% Today
@@ -740,9 +736,8 @@ export default function App() {
 
             <div className="flex items-center gap-2 mb-1">
               <span
-                className={`badge font-mono ${
-                  tradeAction === 'BUY' ? 'badge-gain' : 'badge-loss'
-                }`}
+                className={`badge font-mono ${tradeAction === 'BUY' ? 'badge-gain' : 'badge-loss'
+                  }`}
               >
                 ORDER DESK: {tradeAction}
               </span>
@@ -763,9 +758,8 @@ export default function App() {
                   setTradeAction('BUY');
                   setTradeFeedback(null);
                 }}
-                className={`btn justify-center py-2 ${
-                  tradeAction === 'BUY' ? 'btn-buy font-bold' : 'btn-ghost'
-                }`}
+                className={`btn justify-center py-2 ${tradeAction === 'BUY' ? 'btn-buy font-bold' : 'btn-ghost'
+                  }`}
               >
                 BUY (LONG)
               </button>
@@ -774,9 +768,8 @@ export default function App() {
                   setTradeAction('SELL');
                   setTradeFeedback(null);
                 }}
-                className={`btn justify-center py-2 ${
-                  tradeAction === 'SELL' ? 'btn-sell font-bold' : 'btn-ghost'
-                }`}
+                className={`btn justify-center py-2 ${tradeAction === 'SELL' ? 'btn-sell font-bold' : 'btn-ghost'
+                  }`}
               >
                 SELL (EXIT)
               </button>
@@ -867,11 +860,10 @@ export default function App() {
             {/* Feedback Alert */}
             {tradeFeedback && (
               <div
-                className={`p-2.5 rounded text-xs font-mono mb-4 flex items-center gap-2 ${
-                  tradeFeedback.type === 'success'
+                className={`p-2.5 rounded text-xs font-mono mb-4 flex items-center gap-2 ${tradeFeedback.type === 'success'
                     ? 'bg-[#3fb950]/15 text-[#3fb950] border border-[#3fb950]/30'
                     : 'bg-[#f85149]/15 text-[#f85149] border border-[#f85149]/30'
-                }`}
+                  }`}
               >
                 {tradeFeedback.type === 'success' ? (
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -886,9 +878,8 @@ export default function App() {
             <button
               onClick={handleExecuteTrade}
               disabled={isTrading || tradeQuantity <= 0}
-              className={`btn w-full justify-center py-2.5 text-sm font-bold ${
-                tradeAction === 'BUY' ? 'btn-buy' : 'btn-sell'
-              }`}
+              className={`btn w-full justify-center py-2.5 text-sm font-bold ${tradeAction === 'BUY' ? 'btn-buy' : 'btn-sell'
+                }`}
             >
               {isTrading ? (
                 <>
@@ -944,9 +935,8 @@ export default function App() {
               <div>
                 <span className="text-[#8b949e] text-[10px] block">FINAL RETURN ACHIEVED</span>
                 <span
-                  className={`stat-value ${
-                    reviewData.final_return >= reviewData.target_return ? 'text-gain' : 'text-loss'
-                  }`}
+                  className={`stat-value ${reviewData.final_return >= reviewData.target_return ? 'text-gain' : 'text-loss'
+                    }`}
                 >
                   {(reviewData.final_return * 100).toFixed(2)}%
                 </span>
@@ -985,9 +975,6 @@ export default function App() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SUB-VIEWS / SCREENS
-// ─────────────────────────────────────────────────────────────────────────────
 
 function DashboardView({
   state,
@@ -1160,9 +1147,8 @@ function DashboardView({
                   <div className="text-right">
                     <span className="text-white font-bold">₹{h.current_value_cr.toFixed(2)} Cr</span>
                     <span
-                      className={`text-[10px] block font-semibold ${
-                        h.unrealized_pnl >= 0 ? 'text-gain' : 'text-loss'
-                      }`}
+                      className={`text-[10px] block font-semibold ${h.unrealized_pnl >= 0 ? 'text-gain' : 'text-loss'
+                        }`}
                     >
                       {h.unrealized_pnl >= 0 ? '+' : ''}
                       {h.unrealized_pnl_pct.toFixed(2)}%
@@ -1262,11 +1248,10 @@ function MarketsView({
             <button
               key={sec}
               onClick={() => setSectorFilter(sec)}
-              className={`px-2.5 py-1 rounded text-xs font-mono ${
-                sectorFilter === sec
+              className={`px-2.5 py-1 rounded text-xs font-mono ${sectorFilter === sec
                   ? 'bg-[#00d4ff]/20 text-[#00d4ff] border border-[#00d4ff]/40'
                   : 'bg-[#161b22] text-[#8b949e] hover:text-white border border-[#21262d]'
-              }`}
+                }`}
             >
               {sec}
             </button>
@@ -1368,9 +1353,8 @@ function PortfolioView({
         <div className="panel p-4 rounded-lg">
           <span className="section-label">UNREALIZED P&L</span>
           <div
-            className={`stat-value-lg mt-1 ${
-              financials.unrealized_pnl >= 0 ? 'text-gain' : 'text-loss'
-            }`}
+            className={`stat-value-lg mt-1 ${financials.unrealized_pnl >= 0 ? 'text-gain' : 'text-loss'
+              }`}
           >
             {financials.unrealized_pnl >= 0 ? '+' : ''}₹{(financials.unrealized_pnl / 1e7).toFixed(2)} Cr
           </div>
@@ -1382,9 +1366,8 @@ function PortfolioView({
         <div className="panel p-4 rounded-lg">
           <span className="section-label">TOTAL RETURN</span>
           <div
-            className={`stat-value-lg mt-1 ${
-              financials.total_return_pct >= 0 ? 'text-gain' : 'text-loss'
-            }`}
+            className={`stat-value-lg mt-1 ${financials.total_return_pct >= 0 ? 'text-gain' : 'text-loss'
+              }`}
           >
             {financials.total_return_pct >= 0 ? '+' : ''}
             {financials.total_return_pct.toFixed(2)}%
@@ -1513,17 +1496,15 @@ function TradingDeskView({
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => setAction('BUY')}
-          className={`btn justify-center py-2.5 text-sm ${
-            action === 'BUY' ? 'btn-buy font-bold' : 'btn-ghost'
-          }`}
+          className={`btn justify-center py-2.5 text-sm ${action === 'BUY' ? 'btn-buy font-bold' : 'btn-ghost'
+            }`}
         >
           BUY (LONG)
         </button>
         <button
           onClick={() => setAction('SELL')}
-          className={`btn justify-center py-2.5 text-sm ${
-            action === 'SELL' ? 'btn-sell font-bold' : 'btn-ghost'
-          }`}
+          className={`btn justify-center py-2.5 text-sm ${action === 'SELL' ? 'btn-sell font-bold' : 'btn-ghost'
+            }`}
         >
           SELL (EXIT)
         </button>
@@ -1626,9 +1607,8 @@ function TradingDeskView({
 
         <button
           onClick={() => currentStock && onExecuteTrade(currentStock.symbol, action, qty)}
-          className={`btn w-full justify-center py-3 text-sm font-bold ${
-            action === 'BUY' ? 'btn-buy' : 'btn-sell'
-          }`}
+          className={`btn w-full justify-center py-3 text-sm font-bold ${action === 'BUY' ? 'btn-buy' : 'btn-sell'
+            }`}
         >
           CONFIRM AND ROUTE {action} ORDER
         </button>
@@ -1659,13 +1639,12 @@ function NewsView({ news }: { news: GameState['recent_news'] }) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`badge ${
-                      item.priority === 'BREAKING'
+                    className={`badge ${item.priority === 'BREAKING'
                         ? 'badge-critical'
                         : item.priority === 'HIGH'
-                        ? 'badge-warn'
-                        : 'badge-neutral'
-                    }`}
+                          ? 'badge-warn'
+                          : 'badge-neutral'
+                      }`}
                   >
                     {item.priority}
                   </span>
@@ -1793,13 +1772,12 @@ function PerformanceView({
           <div className="p-3 rounded bg-[#161b22] border border-[#21262d]">
             <span className="text-[#8b949e] text-[10px] block">OVERALL RISK LEVEL</span>
             <span
-              className={`font-bold text-sm ${
-                risk.overall_level === 'LOW'
+              className={`font-bold text-sm ${risk.overall_level === 'LOW'
                   ? 'text-gain'
                   : risk.overall_level === 'MEDIUM'
-                  ? 'text-warn'
-                  : 'text-loss'
-              }`}
+                    ? 'text-warn'
+                    : 'text-loss'
+                }`}
             >
               {risk.overall_level}
             </span>
