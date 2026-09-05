@@ -1,0 +1,357 @@
+/* ─── Investment Banker Mode — Global Design System ─────────────────────── */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #080b10;
+  --color-panel: #0d1117;
+  --color-panel2: #161b22;
+  --color-border: #21262d;
+  --color-accent: #00d4ff;
+  --color-green: #3fb950;
+  --color-red: #f85149;
+  --color-gold: #d29922;
+  --color-text: #c9d1d9;
+  --color-dim: #8b949e;
+  --color-muted: #484f58;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--color-panel); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+/* ─── Typography utilities ───────────────────────────────────────────────── */
+.font-mono { font-family: 'JetBrains Mono', monospace; }
+.text-gain { color: var(--color-green); }
+.text-loss { color: var(--color-red); }
+.text-neutral { color: var(--color-accent); }
+.text-warn { color: var(--color-gold); }
+
+/* ─── Panel ──────────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+}
+.panel2 {
+  background: var(--color-panel2);
+  border: 1px solid var(--color-border);
+}
+
+/* ─── Label / section header ─────────────────────────────────────────────── */
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+}
+
+/* ─── Stat card ──────────────────────────────────────────────────────────── */
+.stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stat-value-lg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: #000;
+  border-color: var(--color-accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: #1ae8ff;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.3);
+}
+
+.btn-buy {
+  background: rgba(63, 185, 80, 0.12);
+  color: var(--color-green);
+  border-color: rgba(63, 185, 80, 0.35);
+}
+.btn-buy:hover:not(:disabled) {
+  background: rgba(63, 185, 80, 0.25);
+  box-shadow: 0 0 8px rgba(63, 185, 80, 0.2);
+}
+
+.btn-sell {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--color-red);
+  border-color: rgba(248, 81, 73, 0.35);
+}
+.btn-sell:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.25);
+  box-shadow: 0 0 8px rgba(248, 81, 73, 0.2);
+}
+
+.btn-ghost {
+  background: rgba(255,255,255,0.04);
+  color: var(--color-dim);
+  border-color: var(--color-border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(255,255,255,0.08);
+  color: var(--color-text);
+}
+
+.btn-time {
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--color-accent);
+  border-color: rgba(0, 212, 255, 0.2);
+  font-size: 11px;
+  padding: 5px 10px;
+}
+.btn-time:hover:not(:disabled) {
+  background: rgba(0, 212, 255, 0.18);
+}
+
+/* ─── Input ──────────────────────────────────────────────────────────────── */
+.input-field {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 8px 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  border-color: var(--color-accent);
+}
+.input-field::placeholder {
+  color: var(--color-muted);
+}
+
+/* ─── Table ──────────────────────────────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--color-border);
+}
+.data-table th:first-child { text-align: left; }
+.data-table td {
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--color-text);
+  text-align: right;
+  border-bottom: 1px solid rgba(33, 38, 45, 0.5);
+}
+.data-table td:first-child { text-align: left; }
+.data-table tr:hover td { background: rgba(255,255,255,0.03); cursor: pointer; }
+
+/* ─── Badge ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-family: 'JetBrains Mono', monospace;
+}
+.badge-gain { background: rgba(63, 185, 80, 0.15); color: var(--color-green); }
+.badge-loss { background: rgba(248, 81, 73, 0.15); color: var(--color-red); }
+.badge-neutral { background: rgba(0, 212, 255, 0.12); color: var(--color-accent); }
+.badge-warn { background: rgba(210, 153, 34, 0.15); color: var(--color-gold); }
+.badge-critical { background: rgba(248, 81, 73, 0.25); color: var(--color-red); border: 1px solid rgba(248, 81, 73, 0.4); }
+
+/* ─── Progress bar ───────────────────────────────────────────────────────── */
+.progress-bar {
+  height: 4px;
+  background: var(--color-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent);
+  transition: width 0.4s ease;
+}
+.progress-fill.gain { background: var(--color-green); }
+.progress-fill.warn { background: var(--color-gold); }
+.progress-fill.danger { background: var(--color-red); }
+
+/* ─── Glow effects ───────────────────────────────────────────────────────── */
+.glow-accent { box-shadow: 0 0 15px rgba(0, 212, 255, 0.15); }
+.glow-green { box-shadow: 0 0 15px rgba(63, 185, 80, 0.15); }
+.glow-red { box-shadow: 0 0 15px rgba(248, 81, 73, 0.15); }
+
+/* ─── Notification ───────────────────────────────────────────────────────── */
+.notification {
+  border-left: 3px solid;
+  padding: 8px 12px;
+  background: var(--color-panel2);
+  border-radius: 0 4px 4px 0;
+  animation: fadeIn 0.3s ease-out;
+}
+.notification.info { border-color: var(--color-accent); }
+.notification.warning { border-color: var(--color-gold); }
+.notification.critical { border-color: var(--color-red); }
+
+/* ─── Modal backdrop ─────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 11, 16, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* ─── XP Bar ─────────────────────────────────────────────────────────────── */
+.xp-bar {
+  height: 3px;
+  background: var(--color-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), #7c3aed);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ─── Ticker ─────────────────────────────────────────────────────────────── */
+.ticker-container {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-inner {
+  display: inline-flex;
+  gap: 0;
+  animation: ticker-scroll 40s linear infinite;
+}
+.ticker-inner:hover {
+  animation-play-state: paused;
+}
+
+/* ─── Navigation ─────────────────────────────────────────────────────────── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-dim);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  width: 100%;
+  text-align: left;
+  background: none;
+}
+.nav-item:hover {
+  color: var(--color-text);
+  background: rgba(255,255,255,0.04);
+}
+.nav-item.active {
+  color: var(--color-accent);
+  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(0, 212, 255, 0.15);
+}
+
+/* ─── CEO dialogue ───────────────────────────────────────────────────────── */
+.dialogue-panel {
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 16px;
+}
+.typewriter {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typing 0.05s steps(1) forwards;
+}
+
+/* ─── Misc ───────────────────────────────────────────────────────────────── */
+.divider { border-top: 1px solid var(--color-border); }
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
