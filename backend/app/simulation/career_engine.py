@@ -29,6 +29,15 @@ class QuarterlyReviewResult:
     next_capital: Optional[float]
     xp_awarded: int
     reputation_change: float
+    can_advance: bool = False
+    next_level: Optional[int] = None
+    next_role_title: Optional[str] = None
+    capital_injection: Optional[float] = 0.0
+    capital_injection_cr: Optional[float] = 0.0
+    next_target_return: Optional[float] = None
+    next_drawdown_limit: Optional[float] = None
+    next_perks: Optional[list[str]] = None
+
 
 
 class CareerEngine:
@@ -147,6 +156,11 @@ class CareerEngine:
             rep_change = -10.0
             xp_award = 50
 
+        can_advance = outcome in ("PROMOTED", "TARGET_ACHIEVED") and (career_level + 1) in CAREER_LEVELS
+        next_lvl = career_level + 1 if can_advance else career_level
+        lvl_info = CAREER_LEVELS.get(next_lvl, {})
+        capital_inj = lvl_info.get("capital_injection", 0.0) if can_advance else 0.0
+
         return QuarterlyReviewResult(
             outcome=outcome,
             final_return=round(total_return_pct, 2),
@@ -156,10 +170,19 @@ class CareerEngine:
             xp=xp,
             summary=summary,
             ceo_message=ceo_msg,
-            next_capital=next_capital,
+            next_capital=lvl_info.get("starting_capital"),
             xp_awarded=xp_award,
             reputation_change=rep_change,
+            can_advance=can_advance,
+            next_level=next_lvl if can_advance else None,
+            next_role_title=lvl_info.get("title") if can_advance else None,
+            capital_injection=capital_inj,
+            capital_injection_cr=round(capital_inj / 10_000_000, 2),
+            next_target_return=lvl_info.get("target_return_pct"),
+            next_drawdown_limit=round(lvl_info.get("max_drawdown_limit", 0.10) * 100, 2),
+            next_perks=lvl_info.get("perks", []),
         )
+
 
     @staticmethod
     def get_role_title(level: int) -> str:

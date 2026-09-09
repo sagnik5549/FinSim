@@ -1,47 +1,40 @@
-"""
-Pydantic schemas for all API request/response models.
-"""
 from __future__ import annotations
-from datetime import date, datetime
-from typing import Optional, Any
+
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
-# ─── Requests ────────────────────────────────────────────────────────────────
 
 class NewGameRequest(BaseModel):
     player_name: str = Field(default="Player", max_length=100)
 
 
 class AdvanceHoursRequest(BaseModel):
-    game_id: str
+    game_id: UUID
     hours: int = Field(default=1, ge=1, le=8)
 
 
 class BuyRequest(BaseModel):
-    game_id: str
-    symbol: str
+    game_id: UUID
+    symbol: str = Field(min_length=1, max_length=10)
     quantity: int = Field(ge=1)
 
 
 class SellRequest(BaseModel):
-    game_id: str
-    symbol: str
+    game_id: UUID
+    symbol: str = Field(min_length=1, max_length=10)
     quantity: int = Field(ge=1)
 
 
 class LeaveRequest(BaseModel):
-    game_id: str
+    game_id: UUID
     days: int = Field(ge=1, le=60)
 
 
 class LoadGameRequest(BaseModel):
-    game_id: str
+    game_id: UUID
 
-
-# ─── Responses ───────────────────────────────────────────────────────────────
 
 class TimeInfo(BaseModel):
     game_date: str
@@ -88,7 +81,12 @@ class CareerInfo(BaseModel):
     reputation: float
     leave_balance: int
     leave_used: int
+    leave_year: int
     on_leave: bool
+    career_status: str
+    career_review_count: int
+    career_failure_count: int
+    last_review_result: Optional[str] = None
 
 
 class IndexInfo(BaseModel):
@@ -161,9 +159,9 @@ class NewsItemInfo(BaseModel):
     category: str
     priority: str
     headline: str
-    body: Optional[str]
-    affected_symbol: Optional[str]
-    affected_sector: Optional[str]
+    body: Optional[str] = None
+    affected_symbol: Optional[str] = None
+    affected_sector: Optional[str] = None
     market_impact: float
     career_day: int
     game_hour: int
@@ -172,7 +170,7 @@ class NewsItemInfo(BaseModel):
 
 class NotificationInfo(BaseModel):
     id: str
-    level: str          # INFO, WARNING, CRITICAL
+    level: str
     message: str
     category: str
 
@@ -213,7 +211,7 @@ class TradeResult(BaseModel):
 
 
 class CandleData(BaseModel):
-    time: str          # YYYY-MM-DD or tick index as date string
+    time: str
     open: float
     high: float
     low: float
@@ -239,23 +237,23 @@ class TransactionInfo(BaseModel):
     price: float
     total_value: float
     fee: float
-    realized_pnl: Optional[float]
+    realized_pnl: Optional[float] = None
     created_at: str
 
 
 class PerformanceData(BaseModel):
     total_return_pct: float
-    benchmark_return_pct: float      # NIFTY return over same period
+    benchmark_return_pct: float
     max_drawdown: float
     portfolio_volatility: float
-    win_rate: float                  # % of profitable trades
+    win_rate: float
     avg_trade_pnl: float
     best_trade_pnl: float
     worst_trade_pnl: float
     trade_count: int
     sector_attribution: dict[str, float]
     transactions: list[TransactionInfo]
-    daily_portfolio_values: list[dict]  # [{day, value}]
+    daily_portfolio_values: list[dict[str, Any]]
 
 
 class QuarterlyReviewResponse(BaseModel):
@@ -269,6 +267,83 @@ class QuarterlyReviewResponse(BaseModel):
     ceo_message: str
     xp_awarded: int
     reputation_change: float
+    can_advance: bool = False
+    next_level: Optional[int] = None
+    next_role_title: Optional[str] = None
+    capital_injection: Optional[float] = None
+    capital_injection_cr: Optional[float] = None
+    next_target_return: Optional[float] = None
+    next_drawdown_limit: Optional[float] = None
+    next_perks: list[str] = Field(default_factory=list)
+
+
+class AdvanceLevelRequest(BaseModel):
+    game_id: UUID
+
+
+class AdvanceLevelResponse(BaseModel):
+    success: bool
+    message: str
+    career_level: int
+    role: str
+    quarter: int
+    starting_capital: float
+    starting_capital_cr: float
+    quarterly_target: float
+    quarterly_target_cr: float
+    cash_injected: float
+    cash_injected_cr: float
+    max_drawdown_limit: float
+    state: GameStateResponse
+
+
+class MLPredictionInfo(BaseModel):
+    symbol: str
+    name: str
+    sector: str
+    current_price: float
+    predicted_price_1d: float
+    predicted_return_pct_1d: float
+    signal: str
+    confidence_pct: float
+    var_95_pct: float
+    sharpe_alpha: float
+    rsi_14: float
+    macd_signal: str
+    trend: str
+    top_factors: list[dict[str, Any]]
+
+
+class MLUniverseResponse(BaseModel):
+    regime: str
+    predictions: list[MLPredictionInfo]
+    top_picks: list[str]
+    market_sentiment_score: float
+    model_timestamp: str
+
+
+class MLForecastPoint(BaseModel):
+    tick: int
+    label: str
+    predicted_price: float
+    lower_bound: float
+    upper_bound: float
+
+
+class MLForecastResponse(BaseModel):
+    symbol: str
+    name: str
+    current_price: float
+    target_price: float
+    predicted_return_pct: float
+    signal: str
+    confidence_pct: float
+    var_95_pct: float
+    sharpe_alpha: float
+    indicators: dict[str, Any]
+    forecast_path: list[MLForecastPoint]
+    feature_importances: list[dict[str, Any]]
+    rationale: str
 
 
 class NewGameResponse(BaseModel):

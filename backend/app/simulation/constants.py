@@ -205,27 +205,95 @@ SECTOR_MARKET_CORRELATION = {
     "Logistics": 0.50,
 }
 
-# ─── Career Levels ────────────────────────────────────────────────────────────
+# ─── Career Levels & Multi-Quarter Progression ──────────────────────────────
+DAYS_PER_QUARTER = 90
+
 CAREER_LEVELS = {
     1: {
         "title": "Head of Investments",
+        "quarter": 1,
+        "quarter_name": "Quarter 1: Foundation Mandate",
         "xp_required": 0,
         "xp_to_next": 1000,
-        "capital_limit": 100 * CRORE,
+        "starting_capital": 100 * CRORE,       # ₹100 Cr
+        "target_capital": 112 * CRORE,         # ₹112 Cr (+12.0%)
+        "target_return_pct": 12.0,
+        "max_drawdown_limit": 0.10,            # 10.0%
+        "capital_injection": 0.0,
+        "max_career_days": 90,
+        "perks": ["Core 20-Stock Universe", "Standard Execution Desk", "Basic Technical Feed"],
+        "description": "Establish baseline performance at Apex Capital. Demonstrate prudent capital allocation and risk control.",
     },
     2: {
-        "title": "Investment Manager",
+        "title": "Managing Director (Equities)",
+        "quarter": 2,
+        "quarter_name": "Quarter 2: Institutional Expansion",
         "xp_required": 1000,
         "xp_to_next": 3000,
-        "capital_limit": 250 * CRORE,
+        "starting_capital": 250 * CRORE,       # ₹250 Cr
+        "target_capital": 287.5 * CRORE,       # ₹287.5 Cr (+15.0%)
+        "target_return_pct": 15.0,
+        "max_drawdown_limit": 0.085,           # 8.5%
+        "capital_injection": 150 * CRORE,      # Fresh ₹150 Cr tranche injected into cash
+        "max_career_days": 180,
+        "perks": ["ML Quant Predictive Intelligence", "Real-Time Candlestick Telemetry", "Priority Order Routing"],
+        "description": "Apex Capital elevates your mandate with an additional ₹150 Cr institutional tranche. Deploy algorithmic ML signals in more volatile conditions.",
     },
     3: {
-        "title": "Senior Investment Manager",
+        "title": "Chief Investment Officer (CIO)",
+        "quarter": 3,
+        "quarter_name": "Quarter 3: Flagship Fund Leadership",
         "xp_required": 3000,
         "xp_to_next": 7000,
-        "capital_limit": 500 * CRORE,
+        "starting_capital": 500 * CRORE,       # ₹500 Cr
+        "target_capital": 590 * CRORE,         # ₹590 Cr (+18.0%)
+        "target_return_pct": 18.0,
+        "max_drawdown_limit": 0.075,           # 7.5%
+        "capital_injection": 250 * CRORE,      # Fresh ₹250 Cr tranche injected into cash
+        "max_career_days": 270,
+        "perks": ["Institutional Block Trading", "Adaptive Multi-Regime Hedging", "Executive Risk Authority"],
+        "description": "Assuming executive CIO oversight of the flagship institutional balance sheet. Steer through systemic shocks and macro rotational waves.",
+    },
+    4: {
+        "title": "Senior Managing Partner",
+        "quarter": 4,
+        "quarter_name": "Quarter 4: Apex Partnership & Spinoff",
+        "xp_required": 7000,
+        "xp_to_next": 15000,
+        "starting_capital": 1000 * CRORE,      # ₹1,000 Cr
+        "target_capital": 1200 * CRORE,        # ₹1,200 Cr (+20.0%)
+        "target_return_pct": 20.0,
+        "max_drawdown_limit": 0.060,           # 6.0%
+        "capital_injection": 500 * CRORE,      # Fresh ₹500 Cr tranche injected into cash
+        "max_career_days": 360,
+        "perks": ["Apex Partnership Equity", "Autonomous Spinoff Fund", "Sovereign Co-Investment"],
+        "description": "Offered equity partnership and the opportunity to lead an autonomous spinoff fund managing ₹1,000 Crore.",
+    },
+    5: {
+        "title": "Apex Sovereign Legend",
+        "quarter": 5,
+        "quarter_name": "Quarter 5+: Sovereign Wealth Advisory",
+        "xp_required": 15000,
+        "xp_to_next": 99999,
+        "starting_capital": 2500 * CRORE,      # ₹2,500 Cr
+        "target_capital": 3000 * CRORE,        # ₹3,000 Cr (+20.0%)
+        "target_return_pct": 20.0,
+        "max_drawdown_limit": 0.050,           # 5.0%
+        "capital_injection": 1500 * CRORE,     # Fresh ₹1,500 Cr tranche
+        "max_career_days": 720,
+        "perks": ["Sovereign Mandate", "Perpetual Simulation Mode", "Hall of Fame Legacy"],
+        "description": "Pinnacle of financial mastery. Managing multi-billion rupee sovereign wealth with unrivaled institutional prestige.",
     },
 }
+
+
+def get_level_info(level: int) -> dict:
+    return CAREER_LEVELS.get(level, CAREER_LEVELS[1])
+
+
+def get_quarter_max_days(quarter: int) -> int:
+    level = min(5, max(1, quarter))
+    return CAREER_LEVELS[level]["max_career_days"]
 
 # ─── Index Starting Values ────────────────────────────────────────────────────
 INDEX_DEFAULTS = {
