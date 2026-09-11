@@ -1,150 +1,263 @@
-"""
-PortfolioEngine — computes portfolio metrics from holdings and current prices.
-All values in INR (Rupees).
-"""
 from dataclasses import dataclass, field
-from typing import Optional
+from math import sqrt
+from typing import Any
 
-from app.simulation.constants import CRORE, LAKH
+from app.simulation.constants import CRORE, TRANSACTION_FEE_RATE
 
 
 @dataclass
 class PortfolioMetrics:
-    # Core balances
     cash: float
-    invested_value: float           # current market value of all holdings
-    total_value: float              # cash + invested_value
+    invested_value: float
+    total_value: float
     starting_capital: float
     quarterly_target: float
-
-    # P&L
-    total_pnl: float                # total_value - starting_capital
-    total_return_pct: float         # (total_value / starting_capital - 1) * 100
+    total_pnl: float
+    total_return_pct: float
     realized_pnl: float
     unrealized_pnl: float
     daily_pnl: float
-
-    # Risk metrics
-    max_drawdown: float             # fraction (e.g. 0.05 = 5%)
-    portfolio_volatility: float     # annualized estimated vol
-
-    # Target tracking
-    target_progress: float          # 0–1 (how close to target)
-    to_target: float                # INR needed to reach target
+    max_drawdown: float
+    portfolio_volatility: float
+    target_progress: float
+    to_target: float
     target_met: bool
-
-    # Sector exposure
-    sector_exposure: dict[str, float]   # sector → % of portfolio
-    largest_position: Optional[str]
-    largest_position_pct: float
-
-    # Holdings detail
-    holdings: list[dict]            # symbol, qty, avg_price, current_price, value, pnl, pnl_pct
+    sector_exposure: dict[str, float] = field(default_factory=dict)
+    largest_position: str | None = None
+    largest_position_pct: float = 0.0
+    holdings: list[dict[str, Any]] = field(default_factory=list)
 
 
 class PortfolioEngine:
 
     @staticmethod
+    def fee_for_trade(value: float) -> float:
+        if value <= 0:
+            return 0.0
+
+        return round(
+            value * TRANSACTION_FEE_RATE,
+            2,
+        )
+
+    @staticmethod
     def compute(
         cash: float,
-        holdings_db: list,          # list of Holding ORM objects
-        stocks_map: dict[str, dict], # symbol → stock snapshot dict
+        holdings_db: list,
+        stocks_map: dict,
         starting_capital: float,
         quarterly_target: float,
         peak_portfolio_value: float,
-        daily_open_portfolio: Optional[float],
-        realized_pnl: float = 0.0,
+        daily_open_portfolio: float,
+        realized_pnl: float,
     ) -> PortfolioMetrics:
-        """
-        Compute all portfolio metrics from current holdings and prices.
-        """
-        holdings_detail = []
-        invested_value = 0.0
-        unrealized_pnl = 0.0
+
+        cash = max(0.0, float(cash))
+        starting_capital = max(
+            0.0,
+            float(starting_capital),
+        )
+        quarterly_target = float(quarterly_target)
+        daily_open_portfolio = float(
+            daily_open_portfolio
+        )
+        realized_pnl = float(realized_pnl)
+
+        holdings: list[dict[str, Any]] = []
         sector_values: dict[str, float] = {}
 
-        for h in holdings_db:
-            sym = h.symbol if hasattr(h, "symbol") else h["symbol"]
-            qty = int(h.quantity if hasattr(h, "quantity") else h["quantity"])
-            avg_price = float(h.avg_buy_price if hasattr(h, "avg_buy_price") else h["avg_buy_price"])
+        invested_value = 0.0
+        unrealized_pnl = 0.0
 
-            if qty <= 0:
+        for holding in holdings_db:
+            quantity = int(holding.quantity)
+
+            if quantity <= 0:
                 continue
 
-            stock = stocks_map.get(sym)
-            if not stock:
+            symbol = str(
+                holding.symbol
+            ).upper().strip()
+
+            stock = stocks_map.get(symbol)
+
+            if stock is None:
                 continue
 
-            cur_price = stock["current_price"] if isinstance(stock, dict) else stock.current_price
-            sector = stock["sector"] if isinstance(stock, dict) else stock.sector
-            name = stock["name"] if isinstance(stock, dict) else stock.name
+            price = max(
+                0.0,
+                float(stock.current_price),
+            )
 
-            cur_value = qty * cur_price
-            cost_basis = qty * avg_price
-            unrealized = cur_value - cost_basis
-            unrealized_pct = (cur_value / cost_basis - 1) * 100 if cost_basis > 0 else 0.0
+            avg_buy_price = max(
+                0.0,
+                float(holding.avg_buy_price),
+            )
 
-            holdings_detail.append({
-                "symbol": sym,
-                "name": name,
-                "sector": sector,
-                "quantity": qty,
-                "avg_buy_price": avg_price,
-                "current_price": cur_price,
-                "current_value": cur_value,
-                "cost_basis": cost_basis,
-                "unrealized_pnl": unrealized,
-                "unrealized_pnl_pct": unrealized_pct,
-                "daily_return": stock.get("daily_return", 0.0) if isinstance(stock, dict) else getattr(stock, "daily_return", 0.0),
-            })
+            market_value = quantity * price
+            cost_basis = quantity * avg_buy_price
+            position_pnl = market_value - cost_basis
 
-            invested_value += cur_value
-            unrealized_pnl += unrealized
-            sector_values[sector] = sector_values.get(sector, 0.0) + cur_value
+            invested_value += market_value
+            unrealized_pnl += position_pnl
+
+            sector = str(
+                stock.sector
+            )
+
+            sector_values[sector] = (
+                sector_values.get(sector, 0.0)
+                + market_value
+            )
+
+            holdings.append(
+                {
+                    "symbol": symbol,
+                    "name": stock.name,
+                    "sector": sector,
+                    "quantity": quantity,
+                    "avg_buy_price": avg_buy_price,
+                    "current_price": price,
+                    "cost_basis": cost_basis,
+                    "market_value": market_value,
+                    "unrealized_pnl": position_pnl,
+                }
+            )
 
         total_value = cash + invested_value
-        total_pnl = total_value - starting_capital
-        total_return_pct = (total_value / starting_capital - 1) * 100
 
-        # Drawdown
-        current_peak = max(peak_portfolio_value, total_value)
-        max_drawdown = (current_peak - total_value) / current_peak if current_peak > 0 else 0.0
+        if starting_capital > 0:
+            total_pnl = (
+                total_value
+                - starting_capital
+            )
 
-        # Target progress
-        target_gap = quarterly_target - starting_capital
-        current_gain = total_value - starting_capital
-        target_progress = min(1.0, max(0.0, current_gain / target_gap)) if target_gap > 0 else 1.0
+            total_return_pct = (
+                total_pnl
+                / starting_capital
+                * 100
+            )
+        else:
+            total_pnl = 0.0
+            total_return_pct = 0.0
 
-        # Sector exposure (% of total portfolio)
-        sector_exposure = {}
+        if daily_open_portfolio > 0:
+            daily_pnl = (
+                total_value
+                - daily_open_portfolio
+            )
+        else:
+            daily_pnl = 0.0
+
+        peak = max(
+            float(peak_portfolio_value),
+            total_value,
+            0.0,
+        )
+
+        if peak > 0:
+            max_drawdown = max(
+                0.0,
+                (peak - total_value) / peak,
+            )
+        else:
+            max_drawdown = 0.0
+
         if total_value > 0:
-            for sec, val in sector_values.items():
-                sector_exposure[sec] = (val / total_value) * 100
+            for item in holdings:
+                item["position_pct"] = (
+                    item["market_value"]
+                    / total_value
+                )
 
-        # Largest position
-        largest_sym = None
-        largest_pct = 0.0
-        if holdings_detail and total_value > 0:
-            largest = max(holdings_detail, key=lambda h: h["current_value"])
-            largest_sym = largest["symbol"]
-            largest_pct = (largest["current_value"] / total_value) * 100
+            sector_exposure = {
+                sector: value / total_value
+                for sector, value in sector_values.items()
+            }
+        else:
+            sector_exposure = {}
 
-        # Daily P&L
-        daily_pnl = 0.0
-        if daily_open_portfolio is not None:
-            daily_pnl = total_value - daily_open_portfolio
+            for item in holdings:
+                item["position_pct"] = 0.0
 
-        # Portfolio volatility (rough estimate from position-weighted vols)
-        portfolio_vol = 0.0
-        if total_value > 0 and holdings_detail:
-            weighted_vols = []
-            stocks_list = [stocks_map.get(h["symbol"]) for h in holdings_detail]
-            for h, s in zip(holdings_detail, stocks_list):
-                if s:
-                    w = h["current_value"] / total_value
-                    v = s.get("volatility", 0.02) if isinstance(s, dict) else getattr(s, "volatility", 0.02)
-                    weighted_vols.append(w * v)
-            portfolio_vol = sum(weighted_vols) * (252 ** 0.5)  # annualized
+        if holdings:
+            largest = max(
+                holdings,
+                key=lambda item: item["market_value"],
+            )
+
+            largest_position = largest["symbol"]
+            largest_position_pct = (
+                largest["market_value"]
+                / total_value
+                if total_value > 0
+                else 0.0
+            )
+        else:
+            largest_position = None
+            largest_position_pct = 0.0
+
+        weighted_variance = 0.0
+
+        if total_value > 0:
+            for item in holdings:
+                stock = stocks_map.get(
+                    item["symbol"]
+                )
+
+                if stock is None:
+                    continue
+
+                weight = (
+                    item["market_value"]
+                    / total_value
+                )
+
+                volatility = max(
+                    0.0,
+                    float(stock.volatility),
+                )
+
+                weighted_variance += (
+                    weight
+                    * volatility
+                ) ** 2
+
+        portfolio_volatility = (
+            sqrt(weighted_variance)
+            * sqrt(252)
+        )
+
+        target_gap = (
+            quarterly_target
+            - starting_capital
+        )
+
+        if target_gap > 0:
+            target_progress = (
+                total_value
+                - starting_capital
+            ) / target_gap
+        else:
+            target_progress = (
+                1.0
+                if total_value >= quarterly_target
+                else 0.0
+            )
+
+        target_progress = max(
+            0.0,
+            min(1.0, target_progress),
+        )
+
+        to_target = max(
+            0.0,
+            quarterly_target - total_value,
+        )
+
+        target_met = (
+            total_value >= quarterly_target
+        )
 
         return PortfolioMetrics(
             cash=cash,
@@ -158,14 +271,14 @@ class PortfolioEngine:
             unrealized_pnl=unrealized_pnl,
             daily_pnl=daily_pnl,
             max_drawdown=max_drawdown,
-            portfolio_volatility=portfolio_vol,
+            portfolio_volatility=portfolio_volatility,
             target_progress=target_progress,
-            to_target=max(0.0, quarterly_target - total_value),
-            target_met=total_value >= quarterly_target,
+            to_target=to_target,
+            target_met=target_met,
             sector_exposure=sector_exposure,
-            largest_position=largest_sym,
-            largest_position_pct=largest_pct,
-            holdings=holdings_detail,
+            largest_position=largest_position,
+            largest_position_pct=largest_position_pct,
+            holdings=holdings,
         )
 
     @staticmethod
@@ -176,22 +289,40 @@ class PortfolioEngine:
         price: float,
         stocks_map: dict,
     ) -> tuple[bool, str]:
-        """Returns (ok, error_message)."""
-        if quantity <= 0:
-            return False, "Quantity must be a positive integer."
+
+        symbol = str(symbol).upper().strip()
+
         if symbol not in stocks_map:
             return False, f"Unknown symbol: {symbol}"
-        total = quantity * price
-        fee = total * 0.0002
-        total_with_fee = total + fee
-        if cash < total_with_fee:
-            available_cr = cash / (100 * 10**6)
-            needed_cr = total_with_fee / (100 * 10**6)
-            return False, (
-                f"Insufficient cash. Available: ₹{available_cr:.2f} Cr. "
-                f"Required: ₹{needed_cr:.2f} Cr (including fee)."
+
+        if isinstance(quantity, bool) or quantity <= 0:
+            return False, "Quantity must be positive."
+
+        price = float(price)
+
+        if price <= 0:
+            return False, "Stock price must be positive."
+
+        trade_value = quantity * price
+        fee = PortfolioEngine.fee_for_trade(
+            trade_value
+        )
+
+        total_cost = (
+            trade_value + fee
+        )
+
+        if total_cost > float(cash):
+            return (
+                False,
+                (
+                    f"Insufficient cash. "
+                    f"Required ₹{total_cost / CRORE:.4f} Cr, "
+                    f"available ₹{float(cash) / CRORE:.4f} Cr."
+                ),
             )
-        return True, ""
+
+        return True, "BUY validated."
 
     @staticmethod
     def validate_sell(
@@ -199,19 +330,49 @@ class PortfolioEngine:
         symbol: str,
         quantity: int,
     ) -> tuple[bool, str, int]:
-        """Returns (ok, error_message, current_qty)."""
-        if quantity <= 0:
-            return False, "Quantity must be a positive integer.", 0
-        current_qty = 0
-        for h in holdings_db:
-            sym = h.symbol if hasattr(h, "symbol") else h.get("symbol", "")
-            if sym == symbol:
-                current_qty = int(h.quantity if hasattr(h, "quantity") else h.get("quantity", 0))
-                break
-        if current_qty == 0:
-            return False, f"You do not hold any shares of {symbol}.", 0
-        if quantity > current_qty:
-            return False, (
-                f"Cannot sell {quantity} shares. You only hold {current_qty} shares of {symbol}."
-            ), current_qty
-        return True, "", current_qty
+
+        symbol = str(symbol).upper().strip()
+
+        if isinstance(quantity, bool) or quantity <= 0:
+            return (
+                False,
+                "Quantity must be positive.",
+                0,
+            )
+
+        holding = next(
+            (
+                item
+                for item in holdings_db
+                if str(item.symbol).upper().strip()
+                == symbol
+            ),
+            None,
+        )
+
+        if holding is None:
+            return (
+                False,
+                f"You do not hold {symbol}.",
+                0,
+            )
+
+        available = int(
+            holding.quantity
+        )
+
+        if quantity > available:
+            return (
+                False,
+                (
+                    f"Cannot sell {quantity:,} shares. "
+                    f"You only hold {available:,}."
+                ),
+                available,
+            )
+
+        return (
+            True,
+            "SELL validated.",
+            available,
+        )

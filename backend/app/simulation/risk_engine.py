@@ -1,26 +1,35 @@
-"""
-RiskEngine — computes risk metrics and generates warnings.
-Risk is a first-class game mechanic with real consequences.
-"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
+
+from app.simulation.constants import MAX_DRAWDOWN_LIMIT
+
+
+SECTOR_LIMIT = 0.40
+SINGLE_STOCK_LIMIT = 0.25
+MIN_CASH_RATIO = 0.05
+
+HIGH_RISK_THRESHOLD = 60.0
+CRITICAL_RISK_THRESHOLD = 80.0
+
+VOLATILITY_WARNING = 0.20
+VOLATILITY_HIGH = 0.30
 
 
 @dataclass
 class RiskWarning:
-    code: str           # e.g. SECTOR_CONCENTRATION
-    level: str          # LOW, MEDIUM, HIGH, CRITICAL
+    code: str
+    level: str
     message: str
-    value: float        # the actual metric value
-    limit: float        # the policy limit
+    value: float
+    limit: float
     symbol: Optional[str] = None
     sector: Optional[str] = None
 
 
 @dataclass
 class RiskAssessment:
-    overall_level: str          # LOW, MEDIUM, HIGH, CRITICAL
-    risk_score: float           # 0–100
+    overall_level: str
+    risk_score: float
     warnings: list[RiskWarning]
     drawdown_pct: float
     cash_ratio: float
@@ -30,16 +39,19 @@ class RiskAssessment:
     portfolio_volatility: float
 
 
-# ─── Policy limits ────────────────────────────────────────────────────────────
-SECTOR_LIMIT = 0.40          # 40% max in any one sector
-SINGLE_STOCK_LIMIT = 0.25    # 25% max in any one stock
-MIN_CASH_RATIO = 0.05        # 5% minimum cash
-MAX_DRAWDOWN_LIMIT = 0.10    # 10% max drawdown
-HIGH_RISK_THRESHOLD = 60     # score > 60 = HIGH
-CRITICAL_RISK_THRESHOLD = 80 # score > 80 = CRITICAL
-
-
 class RiskEngine:
+
+    @staticmethod
+    def _warning_level(
+        excess_ratio: float,
+    ) -> str:
+        if excess_ratio >= 0.40:
+            return "CRITICAL"
+
+        if excess_ratio >= 0.20:
+            return "HIGH"
+
+        return "MEDIUM"
 
     @staticmethod
     def assess(
@@ -50,113 +62,384 @@ class RiskEngine:
         max_drawdown: float,
         portfolio_volatility: float,
         market_regime: str,
+        max_drawdown_limit: float = MAX_DRAWDOWN_LIMIT,
     ) -> RiskAssessment:
-        """
-        Compute risk score and generate warnings.
-        All inputs are plain Python types for statelessness.
-        """
+
+        total_value = max(
+            0.0,
+            float(total_value),
+        )
+
+        cash = max(
+            0.0,
+            float(cash),
+        )
+
+        max_drawdown = max(
+            0.0,
+            float(max_drawdown),
+        )
+
+        portfolio_volatility = max(
+            0.0,
+            float(portfolio_volatility),
+        )
+
+        max_drawdown_limit = max(
+            0.0,
+            float(max_drawdown_limit),
+        )
+
         warnings: list[RiskWarning] = []
         risk_score = 0.0
 
-        cash_ratio = cash / total_value if total_value > 0 else 1.0
-
-        # ── Single stock concentration ──
-        largest_position_pct = 0.0
-        for h in holdings_detail:
-            pos_pct = (h["current_value"] / total_value * 100) if total_value > 0 else 0
-            if pos_pct > largest_position_pct:
-                largest_position_pct = pos_pct
-            if pos_pct > SINGLE_STOCK_LIMIT * 100:
-                warnings.append(RiskWarning(
-                    code="SINGLE_STOCK_CONCENTRATION",
-                    level="HIGH" if pos_pct > 35 else "MEDIUM",
-                    message=f"{h['symbol']} represents {pos_pct:.1f}% of portfolio. Policy limit: {SINGLE_STOCK_LIMIT*100:.0f}%.",
-                    value=pos_pct,
-                    limit=SINGLE_STOCK_LIMIT * 100,
-                    symbol=h["symbol"],
-                ))
-                risk_score += (pos_pct - SINGLE_STOCK_LIMIT * 100) * 0.8
-
-        # ── Sector concentration ──
-        for sector, pct in sector_exposure.items():
-            if pct > SECTOR_LIMIT * 100:
-                warnings.append(RiskWarning(
-                    code="SECTOR_CONCENTRATION",
-                    level="HIGH" if pct > 50 else "MEDIUM",
-                    message=f"{sector} exposure at {pct:.1f}%. Firm policy limit: {SECTOR_LIMIT*100:.0f}%.",
-                    value=pct,
-                    limit=SECTOR_LIMIT * 100,
-                    sector=sector,
-                ))
-                risk_score += (pct - SECTOR_LIMIT * 100) * 0.5
-
-        # ── Cash ratio ──
-        if cash_ratio < MIN_CASH_RATIO and total_value > 0:
-            warnings.append(RiskWarning(
-                code="LOW_CASH",
-                level="MEDIUM",
-                message=f"Cash at {cash_ratio*100:.1f}% of portfolio. Minimum buffer: {MIN_CASH_RATIO*100:.0f}%.",
-                value=cash_ratio * 100,
-                limit=MIN_CASH_RATIO * 100,
-            ))
-            risk_score += 10
-
-        # ── Drawdown ──
-        if max_drawdown > MAX_DRAWDOWN_LIMIT:
-            warnings.append(RiskWarning(
-                code="DRAWDOWN_BREACH",
-                level="CRITICAL",
-                message=f"Drawdown of {max_drawdown*100:.1f}% exceeds firm limit of {MAX_DRAWDOWN_LIMIT*100:.0f}%. Immediate action required.",
-                value=max_drawdown * 100,
-                limit=MAX_DRAWDOWN_LIMIT * 100,
-            ))
-            risk_score += 30
-        elif max_drawdown > MAX_DRAWDOWN_LIMIT * 0.7:
-            warnings.append(RiskWarning(
-                code="DRAWDOWN_WARNING",
-                level="HIGH",
-                message=f"Drawdown approaching limit at {max_drawdown*100:.1f}%. Limit: {MAX_DRAWDOWN_LIMIT*100:.0f}%.",
-                value=max_drawdown * 100,
-                limit=MAX_DRAWDOWN_LIMIT * 100,
-            ))
-            risk_score += 15
-
-        # ── Regime risk ──
-        regime_risk = {"BULL": 0, "STABLE": 0, "VOLATILE": 10, "BEAR": 20, "CRISIS": 40}
-        risk_score += regime_risk.get(market_regime, 0)
-
-        # ── Portfolio volatility ──
-        if portfolio_volatility > 0.30:
-            risk_score += 15
-            warnings.append(RiskWarning(
-                code="HIGH_PORTFOLIO_VOLATILITY",
-                level="HIGH",
-                message=f"Annualized portfolio volatility at {portfolio_volatility*100:.1f}%. Consider diversification.",
-                value=portfolio_volatility * 100,
-                limit=30.0,
-            ))
-        elif portfolio_volatility > 0.20:
-            risk_score += 8
-
-        risk_score = min(100.0, risk_score)
-
-        overall_level = (
-            "CRITICAL" if risk_score >= CRITICAL_RISK_THRESHOLD
-            else "HIGH" if risk_score >= HIGH_RISK_THRESHOLD
-            else "MEDIUM" if risk_score >= 30
-            else "LOW"
+        cash_ratio = (
+            cash / total_value
+            if total_value > 0
+            else 1.0
         )
 
-        is_violation = any(w.level in ("HIGH", "CRITICAL") for w in warnings)
+        largest_position_pct = 0.0
+
+        for holding in holdings_detail:
+            current_value = max(
+                0.0,
+                float(
+                    holding.get(
+                        "market_value",
+                        holding.get("current_value", 0.0),
+                    )
+                ),
+            )
+
+            position_ratio = (
+                current_value / total_value
+                if total_value > 0
+                else 0.0
+            )
+
+            position_pct = (
+                position_ratio * 100
+            )
+
+            largest_position_pct = max(
+                largest_position_pct,
+                position_pct,
+            )
+
+            if position_ratio > SINGLE_STOCK_LIMIT:
+                excess = (
+                    position_ratio
+                    - SINGLE_STOCK_LIMIT
+                )
+
+                severity = (
+                    RiskEngine._warning_level(
+                        excess
+                        / SINGLE_STOCK_LIMIT
+                    )
+                )
+
+                warnings.append(
+                    RiskWarning(
+                        code="SINGLE_STOCK_CONCENTRATION",
+                        level=severity,
+                        message=(
+                            f"{holding['symbol']} represents "
+                            f"{position_pct:.1f}% of the portfolio. "
+                            f"Policy limit: "
+                            f"{SINGLE_STOCK_LIMIT * 100:.0f}%."
+                        ),
+                        value=round(
+                            position_pct,
+                            2,
+                        ),
+                        limit=(
+                            SINGLE_STOCK_LIMIT
+                            * 100
+                        ),
+                        symbol=holding["symbol"],
+                    )
+                )
+
+                risk_score += min(
+                    30.0,
+                    excess * 100 * 1.2,
+                )
+
+        normalized_sector_exposure: dict[str, float] = {}
+
+        for sector, exposure in (
+            sector_exposure or {}
+        ).items():
+
+            exposure = float(exposure)
+
+            if exposure > 1.0:
+                exposure /= 100.0
+
+            exposure = max(
+                0.0,
+                exposure,
+            )
+
+            normalized_sector_exposure[
+                sector
+            ] = exposure
+
+            if exposure > SECTOR_LIMIT:
+                excess = (
+                    exposure
+                    - SECTOR_LIMIT
+                )
+
+                severity = (
+                    RiskEngine._warning_level(
+                        excess
+                        / SECTOR_LIMIT
+                    )
+                )
+
+                warnings.append(
+                    RiskWarning(
+                        code="SECTOR_CONCENTRATION",
+                        level=severity,
+                        message=(
+                            f"{sector} exposure is "
+                            f"{exposure * 100:.1f}% "
+                            f"of the portfolio. "
+                            f"Policy limit: "
+                            f"{SECTOR_LIMIT * 100:.0f}%."
+                        ),
+                        value=round(
+                            exposure * 100,
+                            2,
+                        ),
+                        limit=(
+                            SECTOR_LIMIT * 100
+                        ),
+                        sector=sector,
+                    )
+                )
+
+                risk_score += min(
+                    25.0,
+                    excess * 100 * 1.0,
+                )
+
+        if (
+            total_value > 0
+            and cash_ratio < MIN_CASH_RATIO
+        ):
+            cash_shortfall = (
+                MIN_CASH_RATIO
+                - cash_ratio
+            )
+
+            warnings.append(
+                RiskWarning(
+                    code="LOW_CASH",
+                    level="MEDIUM",
+                    message=(
+                        f"Cash is only "
+                        f"{cash_ratio * 100:.1f}% "
+                        f"of the portfolio. "
+                        f"Minimum buffer: "
+                        f"{MIN_CASH_RATIO * 100:.0f}%."
+                    ),
+                    value=round(
+                        cash_ratio * 100,
+                        2,
+                    ),
+                    limit=(
+                        MIN_CASH_RATIO * 100
+                    ),
+                )
+            )
+
+            risk_score += min(
+                15.0,
+                cash_shortfall * 100,
+            )
+
+        drawdown_warning_level = (
+            max_drawdown_limit * 0.70
+        )
+
+        if (
+            max_drawdown_limit > 0
+            and max_drawdown >= max_drawdown_limit
+        ):
+            warnings.append(
+                RiskWarning(
+                    code="DRAWDOWN_BREACH",
+                    level="CRITICAL",
+                    message=(
+                        f"Portfolio drawdown is "
+                        f"{max_drawdown * 100:.1f}%, "
+                        f"above the career limit of "
+                        f"{max_drawdown_limit * 100:.1f}%."
+                    ),
+                    value=round(
+                        max_drawdown * 100,
+                        2,
+                    ),
+                    limit=round(
+                        max_drawdown_limit * 100,
+                        2,
+                    ),
+                )
+            )
+
+            risk_score += 35.0
+
+        elif (
+            max_drawdown_limit > 0
+            and max_drawdown >= drawdown_warning_level
+        ):
+            progress_to_limit = (
+                max_drawdown
+                / max_drawdown_limit
+            )
+
+            warnings.append(
+                RiskWarning(
+                    code="DRAWDOWN_WARNING",
+                    level="HIGH",
+                    message=(
+                        f"Portfolio drawdown is "
+                        f"{max_drawdown * 100:.1f}%. "
+                        f"Career limit: "
+                        f"{max_drawdown_limit * 100:.1f}%."
+                    ),
+                    value=round(
+                        max_drawdown * 100,
+                        2,
+                    ),
+                    limit=round(
+                        max_drawdown_limit * 100,
+                        2,
+                    ),
+                )
+            )
+
+            risk_score += (
+                10.0
+                + progress_to_limit * 10.0
+            )
+
+        regime_risk = {
+            "BULL": 0.0,
+            "STABLE": 0.0,
+            "VOLATILE": 10.0,
+            "BEAR": 20.0,
+            "CRISIS": 35.0,
+        }
+
+        risk_score += regime_risk.get(
+            market_regime,
+            0.0,
+        )
+
+        if portfolio_volatility >= VOLATILITY_HIGH:
+            warnings.append(
+                RiskWarning(
+                    code="HIGH_PORTFOLIO_VOLATILITY",
+                    level="HIGH",
+                    message=(
+                        f"Annualized portfolio volatility "
+                        f"is {portfolio_volatility * 100:.1f}%. "
+                        f"Risk threshold: "
+                        f"{VOLATILITY_HIGH * 100:.0f}%."
+                    ),
+                    value=round(
+                        portfolio_volatility * 100,
+                        2,
+                    ),
+                    limit=(
+                        VOLATILITY_HIGH * 100
+                    ),
+                )
+            )
+
+            risk_score += 15.0
+
+        elif (
+            portfolio_volatility
+            >= VOLATILITY_WARNING
+        ):
+            warnings.append(
+                RiskWarning(
+                    code="PORTFOLIO_VOLATILITY_WARNING",
+                    level="MEDIUM",
+                    message=(
+                        f"Annualized portfolio volatility "
+                        f"is {portfolio_volatility * 100:.1f}%."
+                    ),
+                    value=round(
+                        portfolio_volatility * 100,
+                        2,
+                    ),
+                    limit=(
+                        VOLATILITY_WARNING * 100
+                    ),
+                )
+            )
+
+            risk_score += 8.0
+
+        risk_score = min(
+            100.0,
+            max(0.0, risk_score),
+        )
+
+        if risk_score >= CRITICAL_RISK_THRESHOLD:
+            overall_level = "CRITICAL"
+        elif risk_score >= HIGH_RISK_THRESHOLD:
+            overall_level = "HIGH"
+        elif risk_score >= 30.0:
+            overall_level = "MEDIUM"
+        else:
+            overall_level = "LOW"
+
+        is_violation = any(
+            warning.level in {
+                "HIGH",
+                "CRITICAL",
+            }
+            for warning in warnings
+        )
 
         return RiskAssessment(
             overall_level=overall_level,
-            risk_score=round(risk_score, 1),
+            risk_score=round(
+                risk_score,
+                1,
+            ),
             warnings=warnings,
-            drawdown_pct=round(max_drawdown * 100, 2),
-            cash_ratio=round(cash_ratio * 100, 2),
-            largest_position_pct=round(largest_position_pct, 2),
-            sector_concentration=sector_exposure,
+            drawdown_pct=round(
+                max_drawdown * 100,
+                2,
+            ),
+            cash_ratio=round(
+                cash_ratio * 100,
+                2,
+            ),
+            largest_position_pct=round(
+                largest_position_pct,
+                2,
+            ),
+            sector_concentration={
+                sector: round(
+                    exposure * 100,
+                    2,
+                )
+                for sector, exposure
+                in normalized_sector_exposure.items()
+            },
             is_violation=is_violation,
-            portfolio_volatility=round(portfolio_volatility * 100, 2),
+            portfolio_volatility=round(
+                portfolio_volatility * 100,
+                2,
+            ),
         )

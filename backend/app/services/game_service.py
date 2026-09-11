@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import datetime
 
 import numpy as np
 from sqlalchemy.orm import Session
@@ -46,6 +46,7 @@ from app.simulation.constants import (
     CRORE,
     INDEX_DEFAULTS,
     CAREER_LEVELS,
+    MARKET_CLOSE_HOUR,
 )
 from app.simulation.time_engine import TimeEngine, TimeState
 from app.simulation.market_engine import MarketEngine
@@ -59,7 +60,11 @@ from app.simulation.ml_engine import MLQuantEngine
 
 
 def _get_game(game_id: str, db: Session) -> Game:
-    game = db.query(Game).filter(Game.id == game_id).first()
+    game = (
+        db.query(Game)
+        .filter(Game.id == game_id)
+        .first()
+    )
 
     if game is None:
         raise ValueError(f"Game {game_id} not found.")
@@ -67,17 +72,27 @@ def _get_game(game_id: str, db: Session) -> Game:
     return game
 
 
-def _stocks_map(db: Session, game_id) -> dict[str, Stock]:
+def _stocks_map(
+    db: Session,
+    game_id,
+) -> dict[str, Stock]:
     stocks = (
         db.query(Stock)
         .filter(Stock.game_id == game_id)
         .order_by(Stock.symbol)
         .all()
     )
-    return {stock.symbol: stock for stock in stocks}
+
+    return {
+        stock.symbol: stock
+        for stock in stocks
+    }
 
 
-def _holdings_list(db: Session, game_id) -> list[Holding]:
+def _holdings_list(
+    db: Session,
+    game_id,
+) -> list[Holding]:
     return (
         db.query(Holding)
         .filter(
@@ -89,7 +104,10 @@ def _holdings_list(db: Session, game_id) -> list[Holding]:
     )
 
 
-def _realized_pnl_total(db: Session, game_id) -> float:
+def _realized_pnl_total(
+    db: Session,
+    game_id,
+) -> float:
     transactions = (
         db.query(Transaction)
         .filter(
@@ -99,7 +117,10 @@ def _realized_pnl_total(db: Session, game_id) -> float:
         .all()
     )
 
-    return sum(transaction.realized_pnl or 0.0 for transaction in transactions)
+    return sum(
+        transaction.realized_pnl or 0.0
+        for transaction in transactions
+    )
 
 
 def _get_rng(game: Game) -> np.random.Generator:
@@ -113,9 +134,19 @@ def _get_rng(game: Game) -> np.random.Generator:
     )
 
 
-def _portfolio_metrics(game: Game, db: Session):
-    stocks = _stocks_map(db, game.id)
-    holdings = _holdings_list(db, game.id)
+def _portfolio_metrics(
+    game: Game,
+    db: Session,
+):
+    stocks = _stocks_map(
+        db,
+        game.id,
+    )
+
+    holdings = _holdings_list(
+        db,
+        game.id,
+    )
 
     return PortfolioEngine.compute(
         cash=game.cash,
@@ -125,20 +156,28 @@ def _portfolio_metrics(game: Game, db: Session):
         quarterly_target=game.quarterly_target,
         peak_portfolio_value=game.peak_portfolio_value,
         daily_open_portfolio=game.daily_open_portfolio,
-        realized_pnl=_realized_pnl_total(db, game.id),
+        realized_pnl=_realized_pnl_total(
+            db,
+            game.id,
+        ),
     )
 
 
-def _risk_assessment(game: Game, db: Session, portfolio):
+def _risk_assessment(
+    game: Game,
+    db: Session,
+    portfolio,
+):
     return RiskEngine.assess(
-        total_value=portfolio.total_value,
-        cash=game.cash,
-        holdings_detail=portfolio.holdings,
-        sector_exposure=portfolio.sector_exposure,
-        max_drawdown=portfolio.max_drawdown,
-        portfolio_volatility=portfolio.portfolio_volatility,
-        market_regime=game.market_regime,
-    )
+    total_value=portfolio.total_value,
+    cash=game.cash,
+    holdings_detail=portfolio.holdings,
+    sector_exposure=portfolio.sector_exposure,
+    max_drawdown=portfolio.max_drawdown,
+    portfolio_volatility=portfolio.portfolio_volatility,
+    market_regime=game.market_regime,
+    max_drawdown_limit=game.max_drawdown_limit,
+)
 
 
 def _append_notification(
@@ -147,7 +186,9 @@ def _append_notification(
     message: str,
     category: str,
 ) -> None:
-    notifications = list(game.pending_notifications or [])
+    notifications = list(
+        game.pending_notifications or []
+    )
 
     notifications.append(
         {
@@ -161,14 +202,28 @@ def _append_notification(
     game.pending_notifications = notifications[-20:]
 
 
-def build_state_response(game: Game, db: Session) -> GameStateResponse:
-    stocks = _stocks_map(db, game.id)
-    holdings = _holdings_list(db, game.id)
+def build_state_response(
+    game: Game,
+    db: Session,
+) -> GameStateResponse:
+    stocks = _stocks_map(
+        db,
+        game.id,
+    )
 
-    portfolio = _portfolio_metrics(game, db)
-    risk = _risk_assessment(game, db, portfolio)
+    portfolio = _portfolio_metrics(
+        game,
+        db,
+    )
+
+    risk = _risk_assessment(
+        game,
+        db,
+        portfolio,
+    )
 
     game.active_risk_level = risk.overall_level
+
     game.risk_warnings = [
         {
             "code": warning.code,
@@ -197,16 +252,20 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
         "Sunday",
     ]
 
-    working_hours_left = (
-        max(0, max(WORKING_HOURS) - game.game_hour + 1)
-        if game.market_status == "OPEN"
-        else 0
-    )
+    working_hours_left = 0
+
+    if game.market_status == "OPEN":
+        working_hours_left = max(
+            0,
+            max(WORKING_HOURS) - game.game_hour + 1,
+        )
 
     time_info = TimeInfo(
         game_date=game.game_date.isoformat(),
         game_hour=game.game_hour,
-        day_of_week=days[game.game_date.weekday()],
+        day_of_week=days[
+            game.game_date.weekday()
+        ],
         career_day=game.career_day,
         quarter=game.quarter,
         career_year=game.career_year,
@@ -216,11 +275,20 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
 
     financials = FinancialsInfo(
         cash=portfolio.cash,
-        cash_cr=round(portfolio.cash / CRORE, 4),
+        cash_cr=round(
+            portfolio.cash / CRORE,
+            4,
+        ),
         invested_value=portfolio.invested_value,
-        invested_value_cr=round(portfolio.invested_value / CRORE, 4),
+        invested_value_cr=round(
+            portfolio.invested_value / CRORE,
+            4,
+        ),
         total_value=portfolio.total_value,
-        total_value_cr=round(portfolio.total_value / CRORE, 4),
+        total_value_cr=round(
+            portfolio.total_value / CRORE,
+            4,
+        ),
         starting_capital=portfolio.starting_capital,
         starting_capital_cr=round(
             portfolio.starting_capital / CRORE,
@@ -293,20 +361,24 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
 
     market_tick = (
         db.query(MarketTick)
-        .filter(MarketTick.game_id == game.id)
-        .order_by(MarketTick.tick_index.desc())
+        .filter(
+            MarketTick.game_id == game.id
+        )
+        .order_by(
+            MarketTick.tick_index.desc()
+        )
         .first()
     )
 
     previous = {
-        "NIFTY50": game.nifty_value,
-        "SENSEX": game.sensex_value,
-        "BANKNIFTY": game.bank_nifty_value,
-        "INDIAVIX": game.india_vix_value,
-        "USDINR": game.usdinr_value,
-        "GOLD": game.gold_value,
-        "NASDAQ": game.nasdaq_value,
-        "SP500": game.sp500_value,
+        "NIFTY50": INDEX_DEFAULTS["nifty"],
+        "SENSEX": INDEX_DEFAULTS["sensex"],
+        "BANKNIFTY": INDEX_DEFAULTS["bank_nifty"],
+        "INDIAVIX": INDEX_DEFAULTS["india_vix"],
+        "USDINR": INDEX_DEFAULTS["usdinr"],
+        "GOLD": INDEX_DEFAULTS["gold"],
+        "NASDAQ": INDEX_DEFAULTS["nasdaq"],
+        "SP500": INDEX_DEFAULTS["sp500"],
     }
 
     if market_tick:
@@ -357,10 +429,11 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
 
     for stock in stocks.values():
         daily_return = (
-            ((stock.current_price / stock.daily_open) - 1.0) * 100
-            if stock.daily_open
-            else 0.0
-        )
+            (
+                stock.current_price /
+                stock.daily_open
+            ) - 1.0
+        ) * 100 if stock.daily_open else 0.0
 
         stocks_response.append(
             StockInfo(
@@ -372,7 +445,10 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
                 daily_open=stock.daily_open,
                 daily_high=stock.daily_high,
                 daily_low=stock.daily_low,
-                daily_return=round(daily_return, 4),
+                daily_return=round(
+                    daily_return,
+                    4,
+                ),
                 volume=int(stock.volume),
                 volatility=stock.volatility,
                 beta=stock.beta,
@@ -436,7 +512,9 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
 
     news = (
         db.query(NewsItem)
-        .filter(NewsItem.game_id == game.id)
+        .filter(
+            NewsItem.game_id == game.id
+        )
         .order_by(
             NewsItem.career_day.desc(),
             NewsItem.game_hour.desc(),
@@ -470,16 +548,14 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
             message=item["message"],
             category=item["category"],
         )
-        for item in (game.pending_notifications or [])
+        for item in (
+            game.pending_notifications or []
+        )
     ]
 
-    trade_count = (
-        db.query(Transaction)
-        .filter(
-            Transaction.game_id == game.id,
-            Transaction.career_day == game.career_day,
-        )
-        .count()
+    trade_count = _trade_count_today(
+        game,
+        db,
     )
 
     return GameStateResponse(
@@ -502,7 +578,10 @@ def build_state_response(game: Game, db: Session) -> GameStateResponse:
     )
 
 
-def create_new_game(player_name: str, db: Session) -> str:
+def create_new_game(
+    player_name: str,
+    db: Session,
+) -> str:
     seed = int(
         np.random.default_rng().integers(
             0,
@@ -532,8 +611,13 @@ def create_new_game(player_name: str, db: Session) -> str:
         career_level=1,
         xp=0,
         reputation=50.0,
+        career_review_count=0,
+        career_failure_count=0,
+        last_review_result=None,
+        career_status="ACTIVE",
         leave_balance=60,
         leave_used=0,
+        leave_year=1,
         on_leave=False,
         market_regime="STABLE",
         regime_days_remaining=15,
@@ -558,8 +642,8 @@ def create_new_game(player_name: str, db: Session) -> str:
 
     for definition in STOCK_UNIVERSE:
         base_price = round(
-            definition["base_price"] *
-            rng.uniform(0.95, 1.05),
+            definition["base_price"]
+            * rng.uniform(0.95, 1.05),
             2,
         )
 
@@ -592,7 +676,10 @@ def create_new_game(player_name: str, db: Session) -> str:
 
     db.flush()
 
-    _store_market_tick(game, db)
+    _store_market_tick(
+        game,
+        db,
+    )
 
     db.commit()
     db.refresh(game)
@@ -619,7 +706,10 @@ def advance_game_time(
         if game.status != "ACTIVE":
             break
 
-        _advance_one_hour(game, db)
+        _advance_one_hour(
+            game,
+            db,
+        )
 
     game.updated_at = datetime.utcnow()
 
@@ -640,14 +730,24 @@ def advance_to_market_close(
             f"Game is {game.status} and cannot advance."
         )
 
-    state = _time_state_from_game(game)
-    results = TimeEngine.advance_to_market_close(state)
+    if game.market_status != "OPEN":
+        raise ValueError("Market is already closed.")
 
-    for result in results:
-        _advance_one_hour(game, db)
+    remaining = max(
+        0,
+        MARKET_CLOSE_HOUR - game.game_hour,
+    )
 
+    for _ in range(remaining):
         if game.status != "ACTIVE":
             break
+
+        _advance_one_hour(
+            game,
+            db,
+        )
+
+    game.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(game)
@@ -666,14 +766,22 @@ def advance_to_next_business_day(
             f"Game is {game.status} and cannot advance."
         )
 
-    state = _time_state_from_game(game)
-    results = TimeEngine.advance_to_next_business_day(state)
+    starting_date = game.game_date
 
-    for _ in results:
-        _advance_one_hour(game, db)
-
-        if game.status != "ACTIVE":
+    while game.status == "ACTIVE":
+        if (
+            game.game_date > starting_date
+            and game.game_date.weekday() < 5
+            and game.market_status == "OPEN"
+        ):
             break
+
+        _advance_one_hour(
+            game,
+            db,
+        )
+
+    game.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(game)
@@ -692,14 +800,28 @@ def skip_weekend(
             f"Game is {game.status} and cannot advance."
         )
 
-    state = _time_state_from_game(game)
-    results = TimeEngine.skip_weekend(state)
+    while (
+        game.status == "ACTIVE"
+        and game.game_date.weekday() < 5
+    ):
+        _advance_one_hour(
+            game,
+            db,
+        )
 
-    for _ in results:
-        _advance_one_hour(game, db)
-
-        if game.status != "ACTIVE":
+        if game.game_date.weekday() >= 5:
             break
+
+    while (
+        game.status == "ACTIVE"
+        and game.game_date.weekday() >= 5
+    ):
+        _advance_one_hour(
+            game,
+            db,
+        )
+
+    game.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(game)
@@ -716,55 +838,72 @@ def _advance_one_hour(
 
     rng = _get_rng(game)
 
+    market_was_open = (
+        game.game_date.weekday() < 5
+        and game.game_hour in WORKING_HOURS
+    )
+
+    if market_was_open:
+        _simulate_market_hour(
+            game=game,
+            db=db,
+            rng=rng,
+            career_day=previous_day,
+            game_hour=previous_hour,
+        )
+
     state = _time_state_from_game(game)
+
     result = TimeEngine.advance_one_hour(state)
+
     new_state = result.new_state
 
     game.game_date = new_state.game_date
     game.game_hour = new_state.game_hour
     game.career_day = new_state.career_day
-    game.quarter = TimeEngine.get_quarter(
-        new_state.career_day
-    )
-    game.career_year = (
-        ((new_state.career_day - 1) // CAREER_DAYS) + 1
-    )
+    game.quarter = new_state.quarter
+    game.career_year = new_state.career_year
     game.market_status = new_state.market_status
+    game.on_leave = new_state.on_leave
+    game.leave_balance = new_state.leave_balance
+    game.leave_used = new_state.leave_used
 
     if result.new_career_day:
         game.daily_open_portfolio = (
-            game.cash +
-            _compute_invested_value(game, db)
+            game.cash
+            + _compute_invested_value(game, db)
         )
 
-        stocks = list(
-            _stocks_map(db, game.id).values()
+        stocks = (
+            db.query(Stock)
+            .filter(Stock.game_id == game.id)
+            .all()
         )
 
-        MarketEngine.reset_daily_ohlc(stocks)
+        for stock in stocks:
+            stock.daily_open = stock.current_price
+            stock.daily_high = stock.current_price
+            stock.daily_low = stock.current_price
+            stock.volume = 0
 
-    market_was_open = (
-        previous_hour in WORKING_HOURS
-        and not game.on_leave
+    _process_career_tick(
+        game,
+        db,
     )
 
-    if market_was_open:
-        _simulate_market_hour(
-            game,
-            db,
-            rng,
-            previous_day,
-            previous_hour,
-        )
-
-    _process_career_tick(game, db)
-
-    _record_telemetry(game, db)
+    _record_telemetry(
+        game,
+        db,
+    )
 
     game.updated_at = datetime.utcnow()
 
-    if game.career_day >= CAREER_DAYS:
+    if (
+        game.career_day >= CAREER_DAYS
+        and game.status == "ACTIVE"
+    ):
         game.status = "REVIEW"
+        game.career_status = "REVIEW"
 
 
 def _simulate_market_hour(
@@ -780,22 +919,27 @@ def _simulate_market_hour(
         .all()
     )
 
-    active_events = (
+    active_events = EventEngine.get_active_events(
         db.query(GameEvent)
         .filter(
             GameEvent.game_id == game.id,
             GameEvent.is_active.is_(True),
-            GameEvent.trigger_day <= game.career_day,
         )
-        .all()
+        .all(),
+        career_day,
+        game_hour,
     )
 
     event_shocks = EventEngine.get_event_shocks(
-        active_events
+        active_events,
+        career_day,
+        game_hour,
     )
 
-    macro_shocks = EventEngine.get_macro_sector_shocks(
-        active_events
+    sector_shocks = EventEngine.get_macro_sector_shocks(
+        active_events,
+        career_day,
+        game_hour,
     )
 
     for stock in stocks:
@@ -806,47 +950,38 @@ def _simulate_market_hour(
 
         if sector_shock:
             event_shocks[stock.symbol] = (
-                event_shocks.get(stock.symbol, 0.0)
+                event_shocks.get(
+                    stock.symbol,
+                    0.0,
+                )
                 + sector_shock
             )
 
-    portfolio = _portfolio_metrics(game, db)
+    portfolio = _portfolio_metrics(
+        game,
+        db,
+    )
+
     risk = _risk_assessment(
         game,
         db,
         portfolio,
     )
 
-    director = GameDirector.evaluate(
-        career_day=game.career_day,
+    GameDirector.evaluate(
+        career_day=career_day,
         target_progress=portfolio.target_progress,
         reputation=game.reputation,
         cash_ratio=risk.cash_ratio / 100,
-        trade_count_today=_trade_count_today(game, db),
+        trade_count_today=_trade_count_today(
+            game,
+            db,
+        ),
         max_drawdown=portfolio.max_drawdown,
         market_regime=game.market_regime,
         portfolio_volatility=portfolio.portfolio_volatility,
         rng=rng,
     )
-
-    if director.suggested_event_boost > 1.0:
-        if rng.random() < (
-            (director.suggested_event_boost - 1.0) * 0.15
-        ):
-            extra_events = EventEngine.generate_daily_events(
-                career_day=game.career_day,
-                game_hour=game.game_hour,
-                stocks=stocks,
-                game=game,
-                rng=rng,
-            )
-
-            for event in extra_events[:1]:
-                _persist_event(
-                    game,
-                    event,
-                    db,
-                )
 
     result = MarketEngine.simulate_tick(
         stocks=stocks,
@@ -855,17 +990,17 @@ def _simulate_market_hour(
         event_shocks=event_shocks,
     )
 
-    for snapshot in result.updated_stocks:
-        stock = next(
-            (
-                item
-                for item in stocks
-                if item.symbol == snapshot.symbol
-            ),
-            None,
+    snapshots_map = {
+        snapshot.symbol: snapshot
+        for snapshot in result.updated_stocks
+    }
+
+    for stock in stocks:
+        snapshot = snapshots_map.get(
+            stock.symbol
         )
 
-        if stock is None:
+        if snapshot is None:
             continue
 
         stock.previous_price = stock.current_price
@@ -888,12 +1023,18 @@ def _simulate_market_hour(
     game.nasdaq_value = result.nasdaq
     game.sp500_value = result.sp500
 
-    if result.regime_changed and result.new_regime:
+    if (
+        result.regime_changed
+        and result.new_regime
+    ):
         game.market_regime = result.new_regime
 
         level = (
             "WARNING"
-            if result.new_regime in ("BEAR", "CRISIS")
+            if result.new_regime in (
+                "BEAR",
+                "CRISIS",
+            )
             else "INFO"
         )
 
@@ -910,26 +1051,26 @@ def _simulate_market_hour(
     )
 
     _store_stock_ticks(
-        game,
-        stocks,
-        result.updated_stocks,
-        tick_index,
-        career_day,
-        game_hour,
-        db,
+        game=game,
+        stocks=stocks,
+        snapshots=result.updated_stocks,
+        tick_index=tick_index,
+        career_day=career_day,
+        game_hour=game_hour,
+        db=db,
     )
 
     _store_market_tick_ex(
-        game,
-        tick_index,
-        career_day,
-        game_hour,
-        db,
+        game=game,
+        tick_index=tick_index,
+        career_day=career_day,
+        game_hour=game_hour,
+        db=db,
     )
 
     events = EventEngine.generate_daily_events(
-        career_day=game.career_day,
-        game_hour=game.game_hour,
+        career_day=career_day,
+        game_hour=game_hour,
         stocks=stocks,
         game=game,
         rng=rng,
@@ -947,12 +1088,15 @@ def _simulate_market_hour(
         db,
     )
 
-    if game.game_hour == 14:
-        portfolio = _portfolio_metrics(game, db)
+    if game_hour == 14:
+        portfolio = _portfolio_metrics(
+            game,
+            db,
+        )
 
         ceo_news = NewsEngine.generate_ceo_message(
             portfolio_return=portfolio.total_return_pct,
-            career_day=game.career_day,
+            career_day=career_day,
             target_progress=portfolio.target_progress,
             rng=rng,
         )
@@ -962,8 +1106,8 @@ def _simulate_market_hour(
                 NewsItem(
                     id=uuid.uuid4(),
                     game_id=game.id,
-                    career_day=game.career_day,
-                    game_hour=game.game_hour,
+                    career_day=career_day,
+                    game_hour=game_hour,
                     category="CEO",
                     priority="HIGH",
                     headline=ceo_news.headline,
@@ -979,7 +1123,11 @@ def _process_career_tick(
     game: Game,
     db: Session,
 ) -> None:
-    portfolio = _portfolio_metrics(game, db)
+    portfolio = _portfolio_metrics(
+        game,
+        db,
+    )
+
     risk = _risk_assessment(
         game,
         db,
@@ -1004,8 +1152,8 @@ def _process_career_tick(
         0.0,
         min(
             100.0,
-            game.reputation +
-            career_update.reputation_change,
+            game.reputation
+            + career_update.reputation_change,
         ),
     )
 
@@ -1020,7 +1168,6 @@ def _process_career_tick(
     )
 
     game.daily_pnl = portfolio.daily_pnl
-
     game.active_risk_level = risk.overall_level
 
     game.risk_warnings = [
@@ -1088,7 +1235,10 @@ def _persist_event(
         )
     )
 
-    if event.severity in ("HIGH", "CRITICAL"):
+    if event.severity in (
+        "HIGH",
+        "CRITICAL",
+    ):
         level = (
             "CRITICAL"
             if event.severity == "CRITICAL"
@@ -1139,7 +1289,11 @@ def _record_telemetry(
     game: Game,
     db: Session,
 ) -> None:
-    portfolio = _portfolio_metrics(game, db)
+    portfolio = _portfolio_metrics(
+        game,
+        db,
+    )
+
     risk = _risk_assessment(
         game,
         db,
@@ -1157,14 +1311,20 @@ def _record_telemetry(
             tick_index=tick_index,
             career_day=game.career_day,
             game_hour=game.game_hour,
-            portfolio_value=portfolio.total_value,
             cash=game.cash,
-            invested_value=portfolio.invested_value,
+            portfolio_value=portfolio.total_value,
             total_return_pct=portfolio.total_return_pct,
             max_drawdown=portfolio.max_drawdown,
-            portfolio_volatility=portfolio.portfolio_volatility,
             risk_score=risk.risk_score,
+            holding_count=len(portfolio.holdings),
+            trade_count_today=_trade_count_today(
+                game,
+                db,
+            ),
+            largest_position_pct=risk.largest_position_pct,
             market_regime=game.market_regime,
+            reputation=game.reputation,
+            target_progress=portfolio.target_progress,
         )
     )
 
@@ -1224,7 +1384,10 @@ def execute_buy(
             f"Unknown symbol: {symbol}",
         )
 
-    stocks = _stocks_map(db, game.id)
+    stocks = _stocks_map(
+        db,
+        game.id,
+    )
 
     valid, message = PortfolioEngine.validate_buy(
         game.cash,
@@ -1246,13 +1409,16 @@ def execute_buy(
 
     price = stock.current_price
     value = quantity * price
+
     fee = round(
         value * TRANSACTION_FEE_RATE,
         2,
     )
 
+    total_cost = value + fee
     cash_before = game.cash
-    game.cash -= value + fee
+
+    game.cash -= total_cost
 
     holding = (
         db.query(Holding)
@@ -1268,24 +1434,33 @@ def execute_buy(
             game_id=game.id,
             symbol=symbol,
             quantity=quantity,
-            avg_buy_price=price,
-            total_cost=value + fee,
-        )
-        db.add(holding)
-    else:
-        previous_cost = (
-            holding.quantity *
-            holding.avg_buy_price
+            avg_buy_price=total_cost / quantity,
+            total_cost=total_cost,
         )
 
-        new_quantity = holding.quantity + quantity
-        new_cost = previous_cost + value
+        db.add(holding)
+
+    else:
+        old_cost = (
+            holding.quantity
+            * holding.avg_buy_price
+        )
+
+        new_quantity = (
+            holding.quantity
+            + quantity
+        )
+
+        new_cost = (
+            old_cost
+            + total_cost
+        )
 
         holding.quantity = new_quantity
         holding.avg_buy_price = (
             new_cost / new_quantity
         )
-        holding.total_cost += value + fee
+        holding.total_cost += total_cost
 
     db.add(
         Transaction(
@@ -1311,6 +1486,7 @@ def execute_buy(
         99999,
         game.xp + 10,
     )
+
     game.updated_at = datetime.utcnow()
 
     db.commit()
@@ -1424,27 +1600,31 @@ def execute_sell(
 
     price = stock.current_price
     value = quantity * price
+
     fee = round(
         value * TRANSACTION_FEE_RATE,
         2,
     )
 
-    cash_before = game.cash
     proceeds = value - fee
+    cash_before = game.cash
+
     game.cash += proceeds
 
     avg_price = holding.avg_buy_price
 
     realized_pnl = (
-        (price - avg_price) * quantity
+        (price - avg_price)
+        * quantity
         - fee
     )
 
     holding.quantity -= quantity
+
     holding.total_cost = max(
         0.0,
-        holding.total_cost -
-        avg_price * quantity,
+        holding.total_cost
+        - avg_price * quantity,
     )
 
     if holding.quantity == 0:
@@ -1475,6 +1655,7 @@ def execute_sell(
         99999,
         game.xp + 10,
     )
+
     game.updated_at = datetime.utcnow()
 
     db.commit()
@@ -1529,15 +1710,25 @@ def get_stock_candles(
         min(days, 90),
     )
 
+    ticks_per_day = max(
+        1,
+        len(WORKING_HOURS),
+    )
+
     ticks = (
         db.query(StockTick)
         .filter(
             StockTick.game_id == game.id,
             StockTick.symbol == symbol,
         )
-        .order_by(StockTick.tick_index)
+        .order_by(
+            StockTick.tick_index.desc()
+        )
+        .limit(days * ticks_per_day)
         .all()
     )
+
+    ticks.reverse()
 
     daily = {}
 
@@ -1552,16 +1743,20 @@ def get_stock_candles(
                 "close": tick.close_price,
                 "volume": int(tick.volume),
             }
+
         else:
             daily[day]["high"] = max(
                 daily[day]["high"],
                 tick.high_price,
             )
+
             daily[day]["low"] = min(
                 daily[day]["low"],
                 tick.low_price,
             )
+
             daily[day]["close"] = tick.close_price
+
             daily[day]["volume"] += int(
                 tick.volume
             )
@@ -1630,18 +1825,28 @@ def get_ml_prediction(
             StockTick.game_id == game.id,
             StockTick.symbol == symbol,
         )
-        .order_by(StockTick.tick_index)
+        .order_by(
+            StockTick.tick_index.desc()
+        )
         .limit(250)
         .all()
     )
 
+    tick_history.reverse()
+
     market_history = (
         db.query(MarketTick)
-        .filter(MarketTick.game_id == game.id)
-        .order_by(MarketTick.tick_index)
+        .filter(
+            MarketTick.game_id == game.id
+        )
+        .order_by(
+            MarketTick.tick_index.desc()
+        )
         .limit(250)
         .all()
     )
+
+    market_history.reverse()
 
     nifty_history = [
         float(tick.nifty)
@@ -1671,9 +1876,11 @@ def get_ml_forecast(
     forecast_path = MLQuantEngine.generate_forecast_path(
         current_price=prediction["current_price"],
         target_price=prediction["predicted_price_1d"],
-        expected_return_pct=prediction["predicted_return_pct_1d"],
+        expected_return_pct=prediction[
+            "predicted_return_pct_1d"
+        ],
         var_95_pct=prediction["var_95_pct"],
-        num_ticks=8,
+        num_ticks=len(WORKING_HOURS),
     )
 
     prediction["forecast_path"] = forecast_path
@@ -1689,8 +1896,12 @@ def get_performance(
 
     transactions = (
         db.query(Transaction)
-        .filter(Transaction.game_id == game.id)
-        .order_by(Transaction.created_at)
+        .filter(
+            Transaction.game_id == game.id
+        )
+        .order_by(
+            Transaction.created_at
+        )
         .all()
     )
 
@@ -1724,8 +1935,12 @@ def get_performance(
 
     telemetry = (
         db.query(Telemetry)
-        .filter(Telemetry.game_id == game.id)
-        .order_by(Telemetry.tick_index)
+        .filter(
+            Telemetry.game_id == game.id
+        )
+        .order_by(
+            Telemetry.tick_index
+        )
         .all()
     )
 
@@ -1747,8 +1962,12 @@ def get_performance(
 
     market_ticks = (
         db.query(MarketTick)
-        .filter(MarketTick.game_id == game.id)
-        .order_by(MarketTick.tick_index)
+        .filter(
+            MarketTick.game_id == game.id
+        )
+        .order_by(
+            MarketTick.tick_index
+        )
         .all()
     )
 
@@ -1756,9 +1975,10 @@ def get_performance(
 
     if market_ticks:
         benchmark_return = (
-            market_ticks[-1].nifty /
-            INDEX_DEFAULTS["nifty"] -
-            1
+            (
+                market_ticks[-1].nifty
+                / INDEX_DEFAULTS["nifty"]
+            ) - 1
         ) * 100
 
     transaction_response = [
@@ -1826,9 +2046,13 @@ def do_quarterly_review(
 ) -> QuarterlyReviewResponse:
     game = _get_game(game_id, db)
 
-    if game.status not in ("REVIEW", "ACTIVE"):
+    if game.status not in (
+        "REVIEW",
+        "ACTIVE",
+    ):
         raise ValueError(
-            f"Quarterly review unavailable while game is {game.status}."
+            "Quarterly review unavailable "
+            f"while game is {game.status}."
         )
 
     portfolio = _portfolio_metrics(
@@ -1851,6 +2075,15 @@ def do_quarterly_review(
         "target_return_pct"
     ]
 
+    risk_violations_count = sum(
+        1
+        for warning in risk.warnings
+        if warning.level in (
+            "HIGH",
+            "CRITICAL",
+        )
+    )
+
     review = CareerEngine.quarterly_review(
         career_level=game.career_level,
         reputation=game.reputation,
@@ -1861,15 +2094,12 @@ def do_quarterly_review(
         max_drawdown_limit=level_data[
             "max_drawdown_limit"
         ],
-        risk_violations_count=sum(
-            1
-            for warning in risk.warnings
-            if warning.level in (
-                "HIGH",
-                "CRITICAL",
-            )
-        ),
+        risk_violations_count=risk_violations_count,
+        failure_count=game.career_failure_count,
     )
+
+    game.career_review_count += 1
+    game.last_review_result = review.outcome
 
     game.xp = min(
         99999,
@@ -1880,24 +2110,136 @@ def do_quarterly_review(
         0.0,
         min(
             100.0,
-            game.reputation +
-            review.reputation_change,
+            game.reputation
+            + review.reputation_change,
         ),
     )
 
-    _append_notification(
-        game,
-        "INFO",
-        f"Quarterly review outcome: {review.outcome}",
-        "CAREER",
-    )
-
-    if review.can_advance:
+    if review.outcome == "PROMOTED":
+        game.career_level = review.next_level
+        game.career_failure_count = 0
+        game.career_status = "ACTIVE"
         game.status = "CAREER_ADVANCE"
+
+        next_level_data = CAREER_LEVELS[
+            game.career_level
+        ]
+
+        game.starting_capital = (
+            next_level_data["starting_capital"]
+        )
+
+        game.quarterly_target = (
+            next_level_data["target_capital"]
+        )
+
+        game.max_drawdown_limit = (
+            next_level_data["max_drawdown_limit"]
+        )
+
+        game.cash += review.capital_injection or 0.0
+
+        game.peak_portfolio_value = (
+            game.cash
+            + _compute_invested_value(
+                game,
+                db,
+            )
+        )
+
+        game.daily_open_portfolio = (
+            game.peak_portfolio_value
+        )
+
+        _append_notification(
+            game,
+            "INFO",
+            (
+                f"PROMOTION: You are now Level "
+                f"{game.career_level} — "
+                f"{review.next_role_title}."
+            ),
+            "CAREER",
+        )
+
+    elif review.outcome == "WARNING":
+        game.career_failure_count = 1
+        game.career_status = "WARNING"
+        game.status = "ACTIVE"
+
+        _append_notification(
+            game,
+            "WARNING",
+            (
+                "Quarterly warning: "
+                "performance was below the required standard. "
+                "One more failure may result in demotion or termination."
+            ),
+            "CAREER",
+        )
+
+    elif review.outcome == "FAILED":
+        if review.demoted and review.next_level:
+            game.career_level = review.next_level
+            game.career_failure_count = 0
+            game.career_status = "ACTIVE"
+            game.status = "CAREER_ADVANCE"
+
+            next_level_data = CAREER_LEVELS[
+                game.career_level
+            ]
+
+            game.starting_capital = (
+                next_level_data["starting_capital"]
+            )
+
+            game.quarterly_target = (
+                next_level_data["target_capital"]
+            )
+
+            game.max_drawdown_limit = (
+                next_level_data["max_drawdown_limit"]
+            )
+
+            _append_notification(
+                game,
+                "WARNING",
+                (
+                    f"DEMOTION: You have been moved to "
+                    f"Level {game.career_level} — "
+                    f"{review.next_role_title}."
+                ),
+                "CAREER",
+            )
+
+        else:
+            game.career_failure_count = min(
+                2,
+                game.career_failure_count + 1,
+            )
+            game.career_status = "WARNING"
+            game.status = "ACTIVE"
+
     elif review.outcome == "TERMINATED":
+        game.career_failure_count = (
+            game.career_failure_count + 1
+        )
+        game.career_status = "TERMINATED"
         game.status = "TERMINATED"
+
+        _append_notification(
+            game,
+            "CRITICAL",
+            (
+                "TERMINATED: Your employment has ended "
+                "after repeated quarterly failure."
+            ),
+            "CAREER",
+        )
+
     else:
-        game.status = "REVIEW"
+        game.status = "ACTIVE"
+        game.career_status = "ACTIVE"
 
     game.updated_at = datetime.utcnow()
 
@@ -1946,12 +2288,19 @@ def _compute_invested_value(
     game: Game,
     db: Session,
 ) -> float:
-    stocks = _stocks_map(db, game.id)
-    holdings = _holdings_list(db, game.id)
+    stocks = _stocks_map(
+        db,
+        game.id,
+    )
+
+    holdings = _holdings_list(
+        db,
+        game.id,
+    )
 
     return sum(
-        holding.quantity *
-        stocks[holding.symbol].current_price
+        holding.quantity
+        * stocks[holding.symbol].current_price
         for holding in holdings
         if holding.symbol in stocks
     )

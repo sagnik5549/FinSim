@@ -1,10 +1,7 @@
-"""
-CareerEngine — XP, reputation, level progression, and quarterly review logic.
-"""
 from dataclasses import dataclass
 from typing import Optional
 
-from app.simulation.constants import CAREER_LEVELS, CAREER_DAYS
+from app.simulation.constants import CAREER_LEVELS
 
 
 @dataclass
@@ -18,10 +15,10 @@ class CareerUpdate:
 
 @dataclass
 class QuarterlyReviewResult:
-    outcome: str            # PROMOTED, TARGET_ACHIEVED, WARNING, FAILED, TERMINATED
-    final_return: float     # %
-    target_return: float    # %
-    max_drawdown: float     # %
+    outcome: str
+    final_return: float
+    target_return: float
+    max_drawdown: float
     reputation: float
     xp: int
     summary: str
@@ -37,7 +34,9 @@ class QuarterlyReviewResult:
     next_target_return: Optional[float] = None
     next_drawdown_limit: Optional[float] = None
     next_perks: Optional[list[str]] = None
-
+    failure_count: int = 0
+    demoted: bool = False
+    terminated: bool = False
 
 
 class CareerEngine:
@@ -51,48 +50,30 @@ class CareerEngine:
         risk_assessment,
         target_progress: float,
     ) -> CareerUpdate:
-        """Small per-tick XP and reputation adjustments."""
-        xp_gain = 0
-        rep_change = 0.0
-        notification = None
+        xp_gain = 1
+        reputation_change = 0.0
 
-        # XP for just staying invested and working
-        xp_gain += 1
-
-        # XP based on performance direction
         if total_return_pct > 0:
             xp_gain += min(5, int(total_return_pct * 0.5))
 
-        # Reputation: slight decay each tick unless performing well
+        if target_progress >= 1.0:
+            xp_gain += 1
+
         if total_return_pct > 0.1:
-            rep_change += 0.02
+            reputation_change += 0.02
         elif total_return_pct < -0.5:
-            rep_change -= 0.05
+            reputation_change -= 0.05
 
-        # Risk violations reduce reputation
         if risk_assessment and risk_assessment.is_violation:
-            rep_change -= 0.1
             xp_gain = max(0, xp_gain - 2)
-
-        new_rep = max(0.0, min(100.0, reputation + rep_change))
-        new_xp = xp + xp_gain
-
-        # Check level up
-        current_level_data = CAREER_LEVELS.get(career_level, {})
-        next_xp = current_level_data.get("xp_to_next", 9999)
-        next_level = career_level + 1
-        level_up = False
-
-        if new_xp >= next_xp and next_level in CAREER_LEVELS:
-            level_up = True
-            notification = f"PROMOTION: You have advanced to {CAREER_LEVELS[next_level]['title']}!"
+            reputation_change -= 0.1
 
         return CareerUpdate(
             xp_gained=xp_gain,
-            reputation_change=rep_change,
-            level_up=level_up,
-            new_level=next_level if level_up else None,
-            notification=notification,
+            reputation_change=reputation_change,
+            level_up=False,
+            new_level=None,
+            notification=None,
         )
 
     @staticmethod
@@ -101,90 +82,322 @@ class CareerEngine:
         reputation: float,
         xp: int,
         total_return_pct: float,
-        quarterly_target_return: float,  # e.g. 12.0 for 12%
+        quarterly_target_return: float,
         max_drawdown: float,
         max_drawdown_limit: float,
         risk_violations_count: int,
+        failure_count: int = 0,
     ) -> QuarterlyReviewResult:
-        """Evaluate end-of-quarter performance and determine career outcome."""
+
+        current_level = CAREER_LEVELS.get(career_level, CAREER_LEVELS[1])
+        max_level = max(CAREER_LEVELS)
+
         target_met = total_return_pct >= quarterly_target_return
         drawdown_ok = max_drawdown <= max_drawdown_limit * 100
-        rep_ok = reputation >= 30
+        risk_ok = risk_violations_count == 0
+        reputation_ok = reputation >= 30
 
-        xp_award = 0
-        rep_change = 0.0
-        outcome = ""
-        summary = ""
-        ceo_msg = ""
-        next_capital = None
+        performance_score = CareerEngine._performance_score(
+            total_return_pct=total_return_pct,
+            target_return=quarterly_target_return,
+            max_drawdown=max_drawdown,
+            max_drawdown_limit=max_drawdown_limit,
+            risk_violations_count=risk_violations_count,
+            reputation=reputation,
+        )
 
-        if not rep_ok:
-            outcome = "TERMINATED"
-            summary = "Reputation fell below the minimum acceptable threshold. The board has lost confidence."
-            ceo_msg = "I'm sorry. It's time to move on. The firm needs leadership it can trust."
-            rep_change = -20.0
-            xp_award = 0
-        elif max_drawdown > max_drawdown_limit * 100 * 1.5:
-            outcome = "TERMINATED"
-            summary = f"Drawdown of {max_drawdown:.1f}% far exceeded the firm's {max_drawdown_limit*100:.0f}% policy limit."
-            ceo_msg = "Your risk management was unacceptable. We cannot retain you after this."
-            rep_change = -15.0
-            xp_award = 50
-        elif target_met and drawdown_ok:
-            outcome = "PROMOTED"
-            summary = f"Outstanding performance. Return of {total_return_pct:.1f}% exceeded the {quarterly_target_return:.1f}% target within risk limits."
-            ceo_msg = "Exceptional work. You exceeded our target and managed risk well. You're ready for the next level."
-            rep_change = 15.0
-            xp_award = 500
-            next_capital = None  # escalated at Level 2
-        elif target_met and not drawdown_ok:
-            outcome = "TARGET_ACHIEVED"
-            summary = f"Target achieved at {total_return_pct:.1f}% return, but drawdown of {max_drawdown:.1f}% exceeded policy."
-            ceo_msg = "You hit the number, but the risk was too high. We'll be watching more carefully next quarter."
-            rep_change = 5.0
-            xp_award = 300
-        elif not target_met and total_return_pct > 0 and drawdown_ok:
-            outcome = "WARNING"
-            summary = f"Return of {total_return_pct:.1f}% fell short of the {quarterly_target_return:.1f}% target."
-            ceo_msg = "You preserved capital, but the board expected more. One more chance."
-            rep_change = -5.0
-            xp_award = 150
-        else:
-            outcome = "FAILED"
-            summary = f"Return of {total_return_pct:.1f}% missed the target and drawdown was at {max_drawdown:.1f}%."
-            ceo_msg = "This was a disappointing quarter. I need to see a serious improvement or we'll have difficult conversations."
-            rep_change = -10.0
-            xp_award = 50
+        passed = (
+            target_met
+            and drawdown_ok
+            and risk_ok
+            and reputation_ok
+            and performance_score >= 70
+        )
 
-        can_advance = outcome in ("PROMOTED", "TARGET_ACHIEVED") and (career_level + 1) in CAREER_LEVELS
-        next_lvl = career_level + 1 if can_advance else career_level
-        lvl_info = CAREER_LEVELS.get(next_lvl, {})
-        capital_inj = lvl_info.get("capital_injection", 0.0) if can_advance else 0.0
+        xp_awarded = 0
+        reputation_change = 0.0
+
+        if passed:
+            new_failure_count = 0
+            xp_awarded = 500
+            reputation_change = 15.0
+
+            if career_level >= max_level:
+                return QuarterlyReviewResult(
+                    outcome="TARGET_ACHIEVED",
+                    final_return=round(total_return_pct, 2),
+                    target_return=quarterly_target_return,
+                    max_drawdown=round(max_drawdown, 2),
+                    reputation=reputation,
+                    xp=xp,
+                    summary=(
+                        f"Exceptional performance. You achieved "
+                        f"{total_return_pct:.1f}% against the "
+                        f"{quarterly_target_return:.1f}% target while "
+                        f"maintaining acceptable risk."
+                    ),
+                    ceo_message=(
+                        "You've reached the highest level. "
+                        "Now the expectation is to defend the franchise."
+                    ),
+                    next_capital=None,
+                    xp_awarded=xp_awarded,
+                    reputation_change=reputation_change,
+                    can_advance=False,
+                    next_level=None,
+                    next_role_title=None,
+                    capital_injection=0.0,
+                    capital_injection_cr=0.0,
+                    next_target_return=None,
+                    next_drawdown_limit=None,
+                    next_perks=current_level.get("perks", []),
+                    failure_count=new_failure_count,
+                )
+
+            next_level = career_level + 1
+            next_data = CAREER_LEVELS[next_level]
+            capital_injection = next_data.get("capital_injection", 0.0)
+
+            return QuarterlyReviewResult(
+                outcome="PROMOTED",
+                final_return=round(total_return_pct, 2),
+                target_return=quarterly_target_return,
+                max_drawdown=round(max_drawdown, 2),
+                reputation=reputation,
+                xp=xp,
+                summary=(
+                    f"Target achieved with a performance score of "
+                    f"{performance_score:.1f}. You have earned promotion "
+                    f"to Level {next_level}."
+                ),
+                ceo_message=(
+                    f"Excellent work. You've earned your promotion to "
+                    f"{next_data['title']}."
+                ),
+                next_capital=next_data.get("starting_capital"),
+                xp_awarded=xp_awarded,
+                reputation_change=reputation_change,
+                can_advance=True,
+                next_level=next_level,
+                next_role_title=next_data.get("title"),
+                capital_injection=capital_injection,
+                capital_injection_cr=round(
+                    capital_injection / 10_000_000,
+                    2,
+                ),
+                next_target_return=next_data.get("target_return_pct"),
+                next_drawdown_limit=round(
+                    next_data.get("max_drawdown_limit", 0.10) * 100,
+                    2,
+                ),
+                next_perks=next_data.get("perks", []),
+                failure_count=new_failure_count,
+            )
+
+        new_failure_count = failure_count + 1
+
+        if new_failure_count == 1:
+            xp_awarded = 150
+            reputation_change = -5.0
+
+            return QuarterlyReviewResult(
+                outcome="WARNING",
+                final_return=round(total_return_pct, 2),
+                target_return=quarterly_target_return,
+                max_drawdown=round(max_drawdown, 2),
+                reputation=reputation,
+                xp=xp,
+                summary=CareerEngine._failure_summary(
+                    total_return_pct,
+                    quarterly_target_return,
+                    max_drawdown,
+                    max_drawdown_limit,
+                    risk_violations_count,
+                    performance_score,
+                ),
+                ceo_message=(
+                    "This quarter fell short of expectations. "
+                    "This is your first warning. You have one more chance "
+                    "to demonstrate that you can perform at this level."
+                ),
+                next_capital=None,
+                xp_awarded=xp_awarded,
+                reputation_change=reputation_change,
+                can_advance=False,
+                next_level=None,
+                next_role_title=None,
+                capital_injection=0.0,
+                capital_injection_cr=0.0,
+                next_target_return=quarterly_target_return,
+                next_drawdown_limit=round(
+                    max_drawdown_limit * 100,
+                    2,
+                ),
+                next_perks=current_level.get("perks", []),
+                failure_count=new_failure_count,
+            )
+
+        if career_level == 1:
+            return QuarterlyReviewResult(
+                outcome="TERMINATED",
+                final_return=round(total_return_pct, 2),
+                target_return=quarterly_target_return,
+                max_drawdown=round(max_drawdown, 2),
+                reputation=reputation,
+                xp=xp,
+                summary=(
+                    "Performance remained below the required standard "
+                    "after a previous warning."
+                ),
+                ceo_message=(
+                    "We gave you another opportunity, but the required "
+                    "improvement did not materialize. Your employment is "
+                    "terminated."
+                ),
+                next_capital=None,
+                xp_awarded=50,
+                reputation_change=-20.0,
+                can_advance=False,
+                next_level=None,
+                next_role_title=None,
+                capital_injection=0.0,
+                capital_injection_cr=0.0,
+                next_target_return=None,
+                next_drawdown_limit=None,
+                next_perks=[],
+                failure_count=new_failure_count,
+                terminated=True,
+            )
+
+        previous_level = career_level
+        next_level = career_level - 1
+        next_data = CAREER_LEVELS[next_level]
 
         return QuarterlyReviewResult(
-            outcome=outcome,
+            outcome="FAILED",
             final_return=round(total_return_pct, 2),
             target_return=quarterly_target_return,
             max_drawdown=round(max_drawdown, 2),
             reputation=reputation,
             xp=xp,
-            summary=summary,
-            ceo_message=ceo_msg,
-            next_capital=lvl_info.get("starting_capital"),
-            xp_awarded=xp_award,
-            reputation_change=rep_change,
-            can_advance=can_advance,
-            next_level=next_lvl if can_advance else None,
-            next_role_title=lvl_info.get("title") if can_advance else None,
-            capital_injection=capital_inj,
-            capital_injection_cr=round(capital_inj / 10_000_000, 2),
-            next_target_return=lvl_info.get("target_return_pct"),
-            next_drawdown_limit=round(lvl_info.get("max_drawdown_limit", 0.10) * 100, 2),
-            next_perks=lvl_info.get("perks", []),
+            summary=(
+                f"Performance remained below the Level {previous_level} "
+                f"standard after a previous warning. You have been "
+                f"demoted to Level {next_level}."
+            ),
+            ceo_message=(
+                f"This is your second consecutive failure. "
+                f"You will remain with the firm, but you are being "
+                f"demoted to {next_data['title']}."
+            ),
+            next_capital=next_data.get("starting_capital"),
+            xp_awarded=50,
+            reputation_change=-10.0,
+            can_advance=False,
+            next_level=next_level,
+            next_role_title=next_data.get("title"),
+            capital_injection=0.0,
+            capital_injection_cr=0.0,
+            next_target_return=next_data.get("target_return_pct"),
+            next_drawdown_limit=round(
+                next_data.get("max_drawdown_limit", 0.10) * 100,
+                2,
+            ),
+            next_perks=next_data.get("perks", []),
+            failure_count=0,
+            demoted=True,
         )
 
+    @staticmethod
+    def _performance_score(
+        total_return_pct: float,
+        target_return: float,
+        max_drawdown: float,
+        max_drawdown_limit: float,
+        risk_violations_count: int,
+        reputation: float,
+    ) -> float:
+        if target_return <= 0:
+            return 0.0
+
+        return_score = min(
+            100.0,
+            max(0.0, (total_return_pct / target_return) * 100),
+        )
+
+        drawdown_limit_pct = max_drawdown_limit * 100
+
+        if drawdown_limit_pct <= 0:
+            risk_score = 0.0
+        elif max_drawdown <= drawdown_limit_pct:
+            risk_score = 100.0
+        else:
+            excess = max_drawdown - drawdown_limit_pct
+            risk_score = max(
+                0.0,
+                100.0 - (excess / drawdown_limit_pct) * 100,
+            )
+
+        violation_score = max(
+            0.0,
+            100.0 - (risk_violations_count * 20.0),
+        )
+
+        reputation_score = min(
+            100.0,
+            max(0.0, reputation),
+        )
+
+        return (
+            return_score * 0.45
+            + risk_score * 0.25
+            + violation_score * 0.15
+            + reputation_score * 0.15
+        )
+
+    @staticmethod
+    def _failure_summary(
+        total_return_pct: float,
+        target_return: float,
+        max_drawdown: float,
+        max_drawdown_limit: float,
+        risk_violations_count: int,
+        performance_score: float,
+    ) -> str:
+        reasons = []
+
+        if total_return_pct < target_return:
+            reasons.append(
+                f"return {total_return_pct:.1f}% was below "
+                f"the {target_return:.1f}% target"
+            )
+
+        if max_drawdown > max_drawdown_limit * 100:
+            reasons.append(
+                f"drawdown {max_drawdown:.1f}% exceeded the "
+                f"{max_drawdown_limit * 100:.1f}% limit"
+            )
+
+        if risk_violations_count > 0:
+            reasons.append(
+                f"{risk_violations_count} risk violation(s) occurred"
+            )
+
+        if not reasons:
+            reasons.append("overall performance was below the required standard")
+
+        return (
+            f"Quarterly performance score: {performance_score:.1f}. "
+            + "; ".join(reasons)
+            + "."
+        )
 
     @staticmethod
     def get_role_title(level: int) -> str:
-        data = CAREER_LEVELS.get(level, {})
-        return data.get("title", "Investment Professional")
+        return CAREER_LEVELS.get(
+            level,
+            CAREER_LEVELS[1],
+        ).get(
+            "title",
+            "Investment Professional",
+        )
