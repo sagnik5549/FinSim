@@ -19,6 +19,9 @@ import {
   Layers,
   ArrowRight,
   Sparkles,
+  Play,
+  Pause,
+  Zap,
 } from 'lucide-react';
 import type {
   GameState,
@@ -29,6 +32,8 @@ import type {
 } from './types/game';
 import { gameApi } from './services/api';
 import { useGameState } from './hooks/useGameState';
+import { useLiveTicker } from './hooks/useLiveTicker';
+import { LivePrice, LiveChangeBadge, formatIndianCurrency } from './components/LivePrice';
 
 export default function App() {
   const [gameId, setGameId] = useState<string | null>(() => {
@@ -61,6 +66,39 @@ export default function App() {
     advanceToNextDay,
     skipWeekend,
   } = useGameState(gameId);
+
+  const {
+    isLive,
+    toggleLive,
+    speed,
+    setSpeed,
+    autoNextDay,
+    setAutoNextDay,
+    getFlashDirection,
+  } = useLiveTicker({
+    state,
+    advancing,
+    advanceHour,
+    advanceToNextDay,
+    skipWeekend,
+  });
+
+  // Keep selectedStock and tradeModalStock synced with latest live state ticks
+  useEffect(() => {
+    if (!state?.market?.stocks) return;
+    if (selectedStock) {
+      const updated = state.market.stocks.find((s) => s.symbol === selectedStock.symbol);
+      if (updated && updated.current_price !== selectedStock.current_price) {
+        setSelectedStock(updated);
+      }
+    }
+    if (tradeModalStock) {
+      const updated = state.market.stocks.find((s) => s.symbol === tradeModalStock.symbol);
+      if (updated && updated.current_price !== tradeModalStock.current_price) {
+        setTradeModalStock(updated);
+      }
+    }
+  }, [state, selectedStock, tradeModalStock]);
 
   // Load existing games on mount
   useEffect(() => {
@@ -412,24 +450,26 @@ export default function App() {
       </header>
 
       {/* ─── TICKER TAPE (Indices) ────────────────────────────────────────── */}
-      <div className="h-7 border-b border-[#21262d] bg-[#161b22] px-4 flex items-center overflow-x-auto whitespace-nowrap scrollbar-none shrink-0">
-        <div className="flex items-center gap-5 text-[11px] font-mono">
+      <div className="h-8 border-b border-[#21262d] bg-[#161b22] px-4 flex items-center overflow-x-auto whitespace-nowrap scrollbar-none shrink-0">
+        <div className="flex items-center gap-4 text-[11px] font-mono">
           <span className="section-label text-[#8b949e] flex items-center gap-1">
-            <Activity className="w-3 h-3 text-[#00d4ff]" /> MARKETS:
+            <Activity className="w-3.5 h-3.5 text-[#00d4ff]" /> BENCHMARKS:
           </span>
-          {market.indices.map((idx) => (
-            <div key={idx.symbol} className="inline-flex items-center gap-1.5">
-              <span className="text-[#8b949e] font-semibold">{idx.name}</span>
-              <span className="text-white font-mono">{idx.value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              <span
-                className={`text-[10px] font-bold ${idx.change_pct >= 0 ? 'text-gain' : 'text-loss'
-                  }`}
+          {market.indices.map((idx) => {
+            const flash = getFlashDirection(idx.symbol);
+            return (
+              <div
+                key={idx.symbol}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded transition-all ${
+                  flash === 'UP' ? 'flash-up' : flash === 'DOWN' ? 'flash-down' : ''
+                }`}
               >
-                {idx.change_pct >= 0 ? '+' : ''}
-                {idx.change_pct.toFixed(2)}%
-              </span>
-            </div>
-          ))}
+                <span className="text-[#8b949e] font-semibold">{idx.name}</span>
+                <LivePrice price={idx.value} flash={flash} prefix="" className="font-bold text-white" />
+                <LiveChangeBadge changePct={idx.change_pct} flash={flash} />
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -496,41 +536,84 @@ export default function App() {
 
         {/* Central Workspace Area */}
         <main className="flex-1 flex flex-col overflow-hidden bg-[#080b10]">
-          {/* Top Simulation Time Controls */}
-          <div className="h-11 border-b border-[#21262d] bg-[#0d1117] px-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 text-[#00d4ff]" />
-              <span className="text-xs font-mono text-[#8b949e] uppercase">ADVANCE TIME:</span>
+          {/* Top Simulation Time Controls & Live Streamer Bar */}
+          <div className="h-12 border-b border-[#21262d] bg-[#0d1117] px-4 flex items-center justify-between shrink-0 gap-3">
+            {/* Left: Groww & INDmoney Real-Time Live Controller */}
+            <div className="flex items-center gap-3">
+              <div className={`live-beacon ${isLive ? '' : 'paused'}`}>
+                <div className={`live-dot ${isLive ? '' : 'paused'}`} />
+                <span>{isLive ? 'LIVE MARKET' : 'SIMULATION PAUSED'}</span>
+              </div>
+
+              <button
+                onClick={toggleLive}
+                disabled={advancing}
+                className={`btn text-xs py-1 px-3.5 font-bold flex items-center gap-1.5 transition-all ${
+                  isLive
+                    ? 'bg-[#eb5b3c]/20 text-[#eb5b3c] border-[#eb5b3c]/50 hover:bg-[#eb5b3c]/30 shadow-[0_0_10px_rgba(235,91,60,0.3)]'
+                    : 'bg-[#00d09c]/20 text-[#00d09c] border-[#00d09c]/50 hover:bg-[#00d09c]/30 shadow-[0_0_10px_rgba(0,208,156,0.3)]'
+                }`}
+                title={isLive ? 'Pause live simulation' : 'Start live automated market simulation'}
+              >
+                {isLive ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5 fill-current" /> PAUSE LIVE
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" /> GO LIVE
+                  </>
+                )}
+              </button>
+
+              <div className="inline-flex rounded bg-[#161b22] border border-[#21262d] p-0.5 text-[11px] font-mono">
+                {(['1x', '2x', '5x'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSpeed(s)}
+                    className={`px-2 py-0.5 rounded transition-all ${
+                      speed === s ? 'bg-[#00d4ff] text-black font-bold shadow-sm' : 'text-[#8b949e] hover:text-white'
+                    }`}
+                    title={`Tick speed: ${s === '1x' ? 'Normal (2.8s)' : s === '2x' ? 'Fast (1.4s)' : 'Hyper (0.7s)'}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+
+              <label className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono text-[#8b949e] cursor-pointer hover:text-white">
+                <input
+                  type="checkbox"
+                  checked={autoNextDay}
+                  onChange={(e) => setAutoNextDay(e.target.checked)}
+                  className="rounded border-[#21262d] bg-[#161b22] text-[#00d09c] focus:ring-0 cursor-pointer"
+                />
+                <span>Auto-session</span>
+              </label>
             </div>
 
+            {/* Right: Manual Stepping Buttons */}
             <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-[#484f58] uppercase hidden md:inline">STEP:</span>
               <button
                 onClick={advanceHour}
-                disabled={advancing}
+                disabled={advancing || isLive}
                 className="btn btn-time"
-                title="Work 1 simulation hour"
+                title="Advance 1 simulation hour"
               >
-                +1 HOUR
+                +1H
               </button>
               <button
                 onClick={() => advanceHours(2)}
-                disabled={advancing}
+                disabled={advancing || isLive}
                 className="btn btn-time"
                 title="Advance 2 hours"
               >
-                +2 HOURS
-              </button>
-              <button
-                onClick={() => advanceHours(4)}
-                disabled={advancing}
-                className="btn btn-time"
-                title="Advance 4 hours"
-              >
-                +4 HOURS
+                +2H
               </button>
               <button
                 onClick={advanceToClose}
-                disabled={advancing}
+                disabled={advancing || isLive}
                 className="btn btn-time text-[#d29922] border-[#d29922]/30 hover:bg-[#d29922]/10"
                 title="Advance to market close (15:30)"
               >
@@ -538,7 +621,7 @@ export default function App() {
               </button>
               <button
                 onClick={advanceToNextDay}
-                disabled={advancing}
+                disabled={advancing || isLive}
                 className="btn btn-time text-[#3fb950] border-[#3fb950]/30 hover:bg-[#3fb950]/10"
                 title="Advance to next business day 09:15"
               >
@@ -547,21 +630,21 @@ export default function App() {
               {time.market_status === 'WEEKEND' && (
                 <button
                   onClick={skipWeekend}
-                  disabled={advancing}
+                  disabled={advancing || isLive}
                   className="btn btn-time text-[#00d4ff] font-bold"
                   title="Skip to Monday market open"
                 >
                   <FastForward className="w-3 h-3" /> SKIP WEEKEND
                 </button>
               )}
-            </div>
 
-            {advancing && (
-              <div className="flex items-center gap-2 text-xs font-mono text-[#00d4ff]">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Simulating ticks...</span>
-              </div>
-            )}
+              {advancing && (
+                <div className="flex items-center gap-1 text-[11px] font-mono text-[#00d4ff] ml-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span className="hidden xl:inline">Ticking...</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Main Active Screen */}
@@ -572,6 +655,7 @@ export default function App() {
                 onSelectStock={setSelectedStock}
                 onTradeStock={handleOpenTrade}
                 onNavigate={setActiveScreen}
+                getFlashDirection={getFlashDirection}
               />
             )}
 
@@ -580,6 +664,7 @@ export default function App() {
                 stocks={market.stocks}
                 onSelectStock={setSelectedStock}
                 onTradeStock={handleOpenTrade}
+                getFlashDirection={getFlashDirection}
               />
             )}
 
@@ -592,6 +677,7 @@ export default function App() {
                   if (s) handleOpenTrade(s, action);
                 }}
                 onNavigate={setActiveScreen}
+                getFlashDirection={getFlashDirection}
               />
             )}
 
@@ -606,6 +692,7 @@ export default function App() {
                     handleOpenTrade(s, action);
                   }
                 }}
+                getFlashDirection={getFlashDirection}
               />
             )}
 
@@ -649,17 +736,18 @@ export default function App() {
                 </div>
                 <p className="text-sm text-[#8b949e]">{selectedStock.name}</p>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold font-mono text-white">
-                  ₹{selectedStock.current_price.toFixed(2)}
-                </div>
-                <div
-                  className={`text-xs font-mono font-bold ${selectedStock.daily_return >= 0 ? 'text-gain' : 'text-loss'
-                    }`}
-                >
-                  {selectedStock.daily_return >= 0 ? '+' : ''}
-                  {(selectedStock.daily_return * 100).toFixed(2)}% Today
-                </div>
+              <div className="text-right flex flex-col items-end">
+                <LivePrice
+                  price={selectedStock.current_price}
+                  flash={getFlashDirection(selectedStock.symbol)}
+                  className="text-2xl font-bold font-mono text-white"
+                />
+                <LiveChangeBadge
+                  changePct={selectedStock.daily_return * 100}
+                  changeAmount={selectedStock.current_price - selectedStock.daily_open}
+                  flash={getFlashDirection(selectedStock.symbol)}
+                  className="mt-1"
+                />
               </div>
             </div>
 
@@ -744,11 +832,23 @@ export default function App() {
               <span className="text-xs text-[#8b949e] font-mono">{tradeModalStock.sector}</span>
             </div>
 
-            <h2 className="text-xl font-bold text-white font-mono mb-1">
+            <h2 className="text-xl font-bold text-white font-mono mb-2">
               {tradeModalStock.symbol} — {tradeModalStock.name}
             </h2>
-            <div className="text-sm font-mono text-[#8b949e] mb-4">
-              Market Price: <strong className="text-white">₹{tradeModalStock.current_price.toFixed(2)}</strong>
+            <div className="flex items-center justify-between mb-4 p-3 rounded bg-[#161b22] border border-[#21262d]">
+              <div>
+                <span className="text-[10px] font-mono text-[#8b949e] block">LIVE MARKET PRICE</span>
+                <LivePrice
+                  price={tradeModalStock.current_price}
+                  flash={getFlashDirection(tradeModalStock.symbol)}
+                  className="text-xl font-bold text-white"
+                />
+              </div>
+              <LiveChangeBadge
+                changePct={tradeModalStock.daily_return * 100}
+                changeAmount={tradeModalStock.current_price - tradeModalStock.daily_open}
+                flash={getFlashDirection(tradeModalStock.symbol)}
+              />
             </div>
 
             {/* Toggle Action */}
@@ -981,11 +1081,13 @@ function DashboardView({
   onSelectStock,
   onTradeStock,
   onNavigate,
+  getFlashDirection,
 }: {
   state: GameState;
   onSelectStock: (stock: StockInfo) => void;
   onTradeStock: (stock: StockInfo, action: 'BUY' | 'SELL') => void;
   onNavigate: (screen: ActiveScreen) => void;
+  getFlashDirection: (symbol: string) => 'UP' | 'DOWN' | null;
 }) {
   const { financials, market, holdings, recent_news } = state;
 
@@ -1059,24 +1161,27 @@ function DashboardView({
             <div className="p-3 rounded bg-[#161b22] border border-[#21262d]">
               <span className="text-[10px] font-mono text-gain font-bold block mb-2">TOP GAINERS</span>
               <div className="space-y-2">
-                {topGainers.map((s) => (
-                  <div
-                    key={s.symbol}
-                    onClick={() => onSelectStock(s)}
-                    className="flex justify-between items-center text-xs font-mono p-1 rounded hover:bg-white/5 cursor-pointer"
-                  >
-                    <div>
-                      <span className="font-bold text-white">{s.symbol}</span>
-                      <span className="text-[10px] text-[#8b949e] block">{s.name}</span>
+                {topGainers.map((s) => {
+                  const flash = getFlashDirection(s.symbol);
+                  return (
+                    <div
+                      key={s.symbol}
+                      onClick={() => onSelectStock(s)}
+                      className={`flex justify-between items-center text-xs font-mono p-1.5 rounded hover:bg-white/5 cursor-pointer transition-all ${
+                        flash === 'UP' ? 'flash-up' : flash === 'DOWN' ? 'flash-down' : ''
+                      }`}
+                    >
+                      <div>
+                        <span className="font-bold text-white block hover:text-[#00d4ff]">{s.symbol}</span>
+                        <span className="text-[10px] text-[#8b949e] block truncate max-w-[110px]">{s.name}</span>
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                        <LivePrice price={s.current_price} flash={flash} className="font-bold text-white" />
+                        <LiveChangeBadge changePct={s.daily_return * 100} flash={flash} className="mt-0.5" />
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-white">₹{s.current_price.toFixed(2)}</span>
-                      <span className="text-gain block font-bold text-[10px]">
-                        +{(s.daily_return * 100).toFixed(2)}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1084,24 +1189,27 @@ function DashboardView({
             <div className="p-3 rounded bg-[#161b22] border border-[#21262d]">
               <span className="text-[10px] font-mono text-loss font-bold block mb-2">TOP DECLINERS</span>
               <div className="space-y-2">
-                {topLosers.map((s) => (
-                  <div
-                    key={s.symbol}
-                    onClick={() => onSelectStock(s)}
-                    className="flex justify-between items-center text-xs font-mono p-1 rounded hover:bg-white/5 cursor-pointer"
-                  >
-                    <div>
-                      <span className="font-bold text-white">{s.symbol}</span>
-                      <span className="text-[10px] text-[#8b949e] block">{s.name}</span>
+                {topLosers.map((s) => {
+                  const flash = getFlashDirection(s.symbol);
+                  return (
+                    <div
+                      key={s.symbol}
+                      onClick={() => onSelectStock(s)}
+                      className={`flex justify-between items-center text-xs font-mono p-1.5 rounded hover:bg-white/5 cursor-pointer transition-all ${
+                        flash === 'UP' ? 'flash-up' : flash === 'DOWN' ? 'flash-down' : ''
+                      }`}
+                    >
+                      <div>
+                        <span className="font-bold text-white block hover:text-[#00d4ff]">{s.symbol}</span>
+                        <span className="text-[10px] text-[#8b949e] block truncate max-w-[110px]">{s.name}</span>
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                        <LivePrice price={s.current_price} flash={flash} className="font-bold text-white" />
+                        <LiveChangeBadge changePct={s.daily_return * 100} flash={flash} className="mt-0.5" />
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-white">₹{s.current_price.toFixed(2)}</span>
-                      <span className="text-loss block font-bold text-[10px]">
-                        {(s.daily_return * 100).toFixed(2)}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1135,27 +1243,31 @@ function DashboardView({
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto space-y-2">
-              {holdings.map((h) => (
-                <div
-                  key={h.symbol}
-                  className="p-2.5 rounded bg-[#161b22] border border-[#21262d] flex items-center justify-between font-mono text-xs"
-                >
-                  <div>
-                    <span className="font-bold text-white">{h.symbol}</span>
-                    <span className="text-[#8b949e] text-[10px] block">{h.quantity} shares · avg ₹{h.avg_buy_price.toFixed(2)}</span>
+              {holdings.map((h) => {
+                const flash = getFlashDirection(h.symbol);
+                return (
+                  <div
+                    key={h.symbol}
+                    className={`p-2.5 rounded bg-[#161b22] border border-[#21262d] flex items-center justify-between font-mono text-xs transition-all ${
+                      flash === 'UP' ? 'flash-up' : flash === 'DOWN' ? 'flash-down' : ''
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-white block">{h.symbol}</span>
+                      <span className="text-[#8b949e] text-[10px] block">{h.quantity} shares · avg ₹{h.avg_buy_price.toFixed(2)}</span>
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <span className="text-white font-bold">₹{h.current_value_cr.toFixed(2)} Cr</span>
+                      <LiveChangeBadge
+                        changePct={h.unrealized_pnl_pct}
+                        changeAmount={h.unrealized_pnl / 1e7}
+                        flash={flash}
+                        className="mt-0.5"
+                      />
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-white font-bold">₹{h.current_value_cr.toFixed(2)} Cr</span>
-                    <span
-                      className={`text-[10px] block font-semibold ${h.unrealized_pnl >= 0 ? 'text-gain' : 'text-loss'
-                        }`}
-                    >
-                      {h.unrealized_pnl >= 0 ? '+' : ''}
-                      {h.unrealized_pnl_pct.toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1205,10 +1317,12 @@ function MarketsView({
   stocks,
   onSelectStock,
   onTradeStock,
+  getFlashDirection,
 }: {
   stocks: StockInfo[];
   onSelectStock: (stock: StockInfo) => void;
   onTradeStock: (stock: StockInfo, action: 'BUY' | 'SELL') => void;
+  getFlashDirection: (symbol: string) => 'UP' | 'DOWN' | null;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sectorFilter, setSectorFilter] = useState('ALL');
@@ -1266,7 +1380,7 @@ function MarketsView({
             <tr>
               <th>SYMBOL / COMPANY</th>
               <th>SECTOR</th>
-              <th>PRICE (₹)</th>
+              <th>LIVE PRICE (₹)</th>
               <th>CHANGE</th>
               <th>DAY RANGE</th>
               <th>BETA</th>
@@ -1275,43 +1389,72 @@ function MarketsView({
             </tr>
           </thead>
           <tbody>
-            {filteredStocks.map((s) => (
-              <tr key={s.symbol} onClick={() => onSelectStock(s)}>
-                <td>
-                  <span className="font-bold text-white block">{s.symbol}</span>
-                  <span className="text-[10px] text-[#8b949e] block">{s.name}</span>
-                </td>
-                <td>
-                  <span className="badge badge-neutral text-[10px]">{s.sector}</span>
-                </td>
-                <td className="font-bold text-white">₹{s.current_price.toFixed(2)}</td>
-                <td className={s.daily_return >= 0 ? 'text-gain' : 'text-loss'}>
-                  {s.daily_return >= 0 ? '+' : ''}
-                  {(s.daily_return * 100).toFixed(2)}%
-                </td>
-                <td className="text-[11px] text-[#8b949e]">
-                  ₹{s.daily_low.toFixed(0)} - ₹{s.daily_high.toFixed(0)}
-                </td>
-                <td className="text-[#00d4ff]">{s.beta.toFixed(2)}</td>
-                <td className="text-white">{s.valuation.toFixed(2)}x</td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <div className="flex gap-1.5 justify-end">
-                    <button
-                      onClick={() => onTradeStock(s, 'BUY')}
-                      className="btn btn-buy text-[11px] py-1 px-2.5"
-                    >
-                      BUY
-                    </button>
-                    <button
-                      onClick={() => onTradeStock(s, 'SELL')}
-                      className="btn btn-sell text-[11px] py-1 px-2.5"
-                    >
-                      SELL
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {filteredStocks.map((s) => {
+              const flash = getFlashDirection(s.symbol);
+              const dayDiff = s.current_price - s.daily_open;
+              const rangeSpan = Math.max(0.01, s.daily_high - s.daily_low);
+              const pricePct = Math.min(100, Math.max(0, ((s.current_price - s.daily_low) / rangeSpan) * 100));
+
+              return (
+                <tr
+                  key={s.symbol}
+                  onClick={() => onSelectStock(s)}
+                  className={`transition-all ${
+                    flash === 'UP' ? 'flash-up' : flash === 'DOWN' ? 'flash-down' : ''
+                  }`}
+                >
+                  <td>
+                    <span className="font-bold text-white block hover:text-[#00d4ff]">{s.symbol}</span>
+                    <span className="text-[10px] text-[#8b949e] block">{s.name}</span>
+                  </td>
+                  <td>
+                    <span className="badge badge-neutral text-[10px]">{s.sector}</span>
+                  </td>
+                  <td className="text-right">
+                    <LivePrice price={s.current_price} flash={flash} className="font-bold text-white text-sm" />
+                  </td>
+                  <td className="text-right">
+                    <LiveChangeBadge
+                      changePct={s.daily_return * 100}
+                      changeAmount={dayDiff}
+                      flash={flash}
+                    />
+                  </td>
+                  <td className="text-[11px] text-[#8b949e]">
+                    <div className="flex flex-col gap-1 w-28 ml-auto">
+                      <div className="flex justify-between text-[9px] font-mono">
+                        <span>L: ₹{s.daily_low.toFixed(0)}</span>
+                        <span>H: ₹{s.daily_high.toFixed(0)}</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-[#21262d] rounded-full overflow-hidden relative">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#00d4ff] to-[#00d09c] rounded-full"
+                          style={{ width: `${pricePct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="text-[#00d4ff] font-mono">{s.beta.toFixed(2)}</td>
+                  <td className="text-white font-mono">{s.valuation.toFixed(2)}x</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div className="flex gap-1.5 justify-end">
+                      <button
+                        onClick={() => onTradeStock(s, 'BUY')}
+                        className="btn btn-buy text-[11px] py-1 px-2.5"
+                      >
+                        BUY
+                      </button>
+                      <button
+                        onClick={() => onTradeStock(s, 'SELL')}
+                        className="btn btn-sell text-[11px] py-1 px-2.5"
+                      >
+                        SELL
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
