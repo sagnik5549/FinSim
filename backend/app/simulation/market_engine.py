@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -5,540 +6,765 @@ import numpy as np
 
 from app.simulation.constants import (
     REGIME_PARAMS,
-    SECTOR_CORRELATIONS,
+    SECTOR_MARKET_CORRELATION,
+    WORKING_HOURS,
 )
+
+
+HOURS_PER_DAY = len(WORKING_HOURS)
+HOURS_PER_YEAR = 252 * HOURS_PER_DAY
+
+
+@dataclass
+class StockSnapshot:
+    symbol: str
+    name: str
+    sector: str
+    current_price: float
+    previous_price: float
+    daily_open: float
+    daily_high: float
+    daily_low: float
+    volume: int
+    daily_return: float
+    volatility: float
+    beta: float
+    sentiment: float
+    momentum: float
+    growth: float
+    profitability: float
+    debt: float
+    valuation: float
+    market_sensitivity: float
+    event_sensitivity: float
+    institutional_pressure: float
 
 
 @dataclass
 class MarketTickResult:
-    regime: str
-    regime_changed: bool
-    index_values: dict[str, float]
-    stock_prices: dict[str, float]
+    updated_stocks: list[StockSnapshot]
+    nifty: float
+    sensex: float
+    bank_nifty: float
+    india_vix: float
+    usdinr: float
+    gold: float
+    nasdaq: float
+    sp500: float
+    market_regime: str
+    regime_changed: bool = False
+    new_regime: Optional[str] = None
 
 
 class MarketEngine:
 
     @staticmethod
-    def _clamp_price(price: float) -> float:
-        return max(0.01, float(price))
+    def _get(
+        stock,
+        field: str,
+        default=0.0,
+    ):
+        if isinstance(stock, dict):
+            return stock.get(field, default)
 
-    @staticmethod
-    def _get_regime_params(regime: str) -> dict:
-        return REGIME_PARAMS.get(
-            regime,
-            REGIME_PARAMS["STABLE"],
+        return getattr(
+            stock,
+            field,
+            default,
         )
 
     @staticmethod
-    def _sector_correlation(
-        sector_a: str,
-        sector_b: str,
-    ) -> float:
-        if sector_a == sector_b:
-            return 1.0
-
-        direct = SECTOR_CORRELATIONS.get(
-            (sector_a, sector_b)
-        )
-
-        if direct is not None:
-            return float(direct)
-
-        reverse = SECTOR_CORRELATIONS.get(
-            (sector_b, sector_a)
-        )
-
-        if reverse is not None:
-            return float(reverse)
-
-        return 0.25
-
-    @staticmethod
-    def _market_shock(
+    def _update_index(
+        current: float,
+        drift: float,
         rng: np.random.Generator,
         volatility: float,
     ) -> float:
-        return float(
+
+        current = max(
+            1.0,
+            float(current),
+        )
+
+        shock = float(
             rng.normal(
                 0.0,
-                max(0.0001, volatility),
+                volatility,
             )
+        )
+
+        return max(
+            1.0,
+            current * (
+                1.0
+                + drift
+                + shock
+            ),
         )
 
     @staticmethod
-    def _update_regime(
+    def _transition_regime(
         game,
+        params: dict,
         rng: np.random.Generator,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, Optional[str]]:
 
-        current_regime = str(
+        current = str(
             game.market_regime
         ).upper()
 
-        params = MarketEngine._get_regime_params(
-            current_regime
+        probabilities = params.get(
+            "transition_probs",
+            {},
         )
 
-        remaining = int(
-            game.regime_days_remaining or 0
+        if not probabilities:
+            return current, False, None
+
+        if rng.random() >= 0.015:
+            return current, False, None
+
+        regimes = list(
+            probabilities.keys()
         )
 
-        if remaining > 0:
-            return current_regime, False
-
-        transitions = {
-            "BULL": ["BULL", "STABLE", "VOLATILE"],
-            "STABLE": ["STABLE", "BULL", "BEAR", "VOLATILE"],
-            "VOLATILE": ["VOLATILE", "STABLE", "BEAR", "CRISIS"],
-            "BEAR": ["BEAR", "STABLE", "VOLATILE", "CRISIS"],
-            "CRISIS": ["CRISIS", "BEAR", "VOLATILE", "STABLE"],
-        }
-
-        candidates = transitions.get(
-            current_regime,
-            ["STABLE"],
-        )
-
-        if len(candidates) == 1:
-            next_regime = candidates[0]
-        else:
-            weights = np.ones(
-                len(candidates),
-                dtype=float,
-            )
-
-            if current_regime in candidates:
-                current_index = candidates.index(
-                    current_regime
+        probs = np.asarray(
+            [
+                float(
+                    probabilities[regime]
                 )
-                weights[current_index] = 3.0
-
-            weights /= weights.sum()
-
-            next_regime = str(
-                rng.choice(
-                    candidates,
-                    p=weights,
-                )
-            )
-
-        regime_params = MarketEngine._get_regime_params(
-            next_regime
+                for regime in regimes
+            ],
+            dtype=float,
         )
 
-        min_days = int(
-            regime_params.get(
-                "min_days",
-                5,
+        total = probs.sum()
+
+        if total <= 0:
+            return current, False, None
+
+        probs /= total
+
+        selected = str(
+            rng.choice(
+                regimes,
+                p=probs,
             )
         )
 
-        max_days = int(
-            regime_params.get(
-                "max_days",
-                20,
-            )
-        )
+        if selected == current:
+            return current, False, None
 
-        game.regime_days_remaining = int(
-            rng.integers(
-                min_days,
-                max_days + 1,
-            )
-        )
-
-        changed = (
-            next_regime != current_regime
-        )
-
-        game.market_regime = next_regime
-
-        return next_regime, changed
+        return selected, True, selected
 
     @staticmethod
     def simulate_tick(
         stocks: list,
         game,
         rng: np.random.Generator,
-        event_shocks: Optional[dict[str, float]] = None,
-        sector_shocks: Optional[dict[str, float]] = None,
-        market_nudge: float = 0.0,
+        event_shocks: Optional[
+            dict[str, float]
+        ] = None,
     ) -> MarketTickResult:
 
         event_shocks = event_shocks or {}
-        sector_shocks = sector_shocks or {}
 
-        regime, regime_changed = (
-            MarketEngine._update_regime(
-                game,
-                rng,
+        current_regime = str(
+            game.market_regime
+        ).upper()
+
+        params = REGIME_PARAMS.get(
+            current_regime,
+            REGIME_PARAMS["STABLE"],
+        )
+
+        drift_range = params.get(
+            "daily_drift_range",
+            (-0.001, 0.002),
+        )
+
+        volatility_multiplier = float(
+            params.get(
+                "vol_multiplier",
+                1.0,
             )
         )
 
-        params = MarketEngine._get_regime_params(
-            regime
+        daily_drift = float(
+            rng.uniform(
+                *drift_range
+            )
         )
 
-        drift = float(
-            params.get("drift", 0.0)
+        hourly_drift = (
+            daily_drift
+            / HOURS_PER_DAY
         )
 
-        volatility = float(
-            params.get("volatility", 0.02)
+        market_volatility = (
+            0.012
+            * volatility_multiplier
+            / math.sqrt(HOURS_PER_DAY)
         )
 
-        market_factor = MarketEngine._market_shock(
+        market_shock = float(
+            rng.normal(
+                0.0,
+                market_volatility,
+            )
+        )
+
+        market_factor = (
+            hourly_drift
+            + market_shock
+        )
+
+        nifty = MarketEngine._update_index(
+            game.nifty_value,
+            market_factor,
             rng,
-            volatility / np.sqrt(8.0),
+            0.003
+            * volatility_multiplier,
         )
 
-        market_factor += float(
-            np.clip(
-                market_nudge,
-                -0.02,
-                0.02,
+        sensex = MarketEngine._update_index(
+            game.sensex_value,
+            market_factor * 1.02,
+            rng,
+            0.003
+            * volatility_multiplier,
+        )
+
+        bank_nifty = MarketEngine._update_index(
+            game.bank_nifty_value,
+            market_factor * 1.15,
+            rng,
+            0.004
+            * volatility_multiplier,
+        )
+
+        vix_change = (
+            -market_factor * 15.0
+            + rng.normal(
+                0.0,
+                0.30
+                * volatility_multiplier,
             )
         )
 
-        stock_returns: dict[str, float] = {}
+        india_vix = max(
+            8.0,
+            min(
+                80.0,
+                float(game.india_vix_value)
+                + vix_change,
+            ),
+        )
+
+        usdinr_change = float(
+            rng.normal(
+                -market_factor * 0.30,
+                0.05
+                * volatility_multiplier,
+            )
+        )
+
+        usdinr = max(
+            70.0,
+            min(
+                100.0,
+                float(game.usdinr_value)
+                + usdinr_change,
+            ),
+        )
+
+        gold = MarketEngine._update_index(
+            game.gold_value,
+            -market_factor * 0.30,
+            rng,
+            0.005
+            * volatility_multiplier,
+        )
+
+        nasdaq = MarketEngine._update_index(
+            game.nasdaq_value,
+            market_factor * 0.80,
+            rng,
+            0.006
+            * volatility_multiplier,
+        )
+
+        sp500 = MarketEngine._update_index(
+            game.sp500_value,
+            market_factor * 0.75,
+            rng,
+            0.005
+            * volatility_multiplier,
+        )
+
+        sector_factors = {}
+
+        for sector, correlation in (
+            SECTOR_MARKET_CORRELATION.items()
+        ):
+            sector_noise = float(
+                rng.normal(
+                    0.0,
+                    0.004
+                    * volatility_multiplier,
+                )
+            )
+
+            sector_factors[sector] = (
+                float(correlation)
+                * market_factor
+                + (
+                    1.0
+                    - float(correlation)
+                )
+                * sector_noise
+            )
+
+        updated_stocks = []
 
         for stock in stocks:
+
             symbol = str(
-                stock.symbol
+                MarketEngine._get(
+                    stock,
+                    "symbol",
+                    "",
+                )
             ).upper()
 
-            stock_volatility = max(
+            name = str(
+                MarketEngine._get(
+                    stock,
+                    "name",
+                    symbol,
+                )
+            )
+
+            sector = str(
+                MarketEngine._get(
+                    stock,
+                    "sector",
+                    "Unknown",
+                )
+            )
+
+            price = max(
+                1.0,
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "current_price",
+                        1.0,
+                    )
+                ),
+            )
+
+            previous_price = float(
+                MarketEngine._get(
+                    stock,
+                    "previous_price",
+                    price,
+                )
+            )
+
+            daily_open = max(
+                1.0,
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "daily_open",
+                        price,
+                    )
+                ),
+            )
+
+            daily_high = max(
+                price,
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "daily_high",
+                        price,
+                    )
+                ),
+            )
+
+            daily_low = min(
+                price,
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "daily_low",
+                        price,
+                    )
+                ),
+            )
+
+            volatility = max(
                 0.0001,
-                float(stock.volatility),
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "volatility",
+                        0.02,
+                    )
+                ),
+            )
+
+            beta = float(
+                MarketEngine._get(
+                    stock,
+                    "beta",
+                    1.0,
+                )
+            )
+
+            sentiment = float(
+                MarketEngine._get(
+                    stock,
+                    "sentiment",
+                    0.5,
+                )
+            )
+
+            momentum = float(
+                MarketEngine._get(
+                    stock,
+                    "momentum",
+                    0.0,
+                )
+            )
+
+            growth = float(
+                MarketEngine._get(
+                    stock,
+                    "growth",
+                    0.10,
+                )
+            )
+
+            profitability = float(
+                MarketEngine._get(
+                    stock,
+                    "profitability",
+                    0.10,
+                )
+            )
+
+            debt = float(
+                MarketEngine._get(
+                    stock,
+                    "debt",
+                    0.30,
+                )
+            )
+
+            valuation = float(
+                MarketEngine._get(
+                    stock,
+                    "valuation",
+                    0.50,
+                )
+            )
+
+            market_sensitivity = float(
+                MarketEngine._get(
+                    stock,
+                    "market_sensitivity",
+                    1.0,
+                )
+            )
+
+            event_sensitivity = float(
+                MarketEngine._get(
+                    stock,
+                    "event_sensitivity",
+                    0.5,
+                )
+            )
+
+            institutional_pressure = float(
+                MarketEngine._get(
+                    stock,
+                    "institutional_pressure",
+                    0.0,
+                )
+            )
+
+            fundamental_annual_drift = (
+                growth * 0.50
+                + profitability * 0.30
+                - debt * 0.10
+                + (1.0 - valuation) * 0.05
+            )
+
+            fundamental_hourly = (
+                fundamental_annual_drift
+                / HOURS_PER_YEAR
             )
 
             hourly_volatility = (
-                stock_volatility
-                / np.sqrt(8.0)
+                volatility
+                * volatility_multiplier
+                / math.sqrt(HOURS_PER_DAY)
             )
 
-            idiosyncratic = MarketEngine._market_shock(
-                rng,
-                hourly_volatility,
+            idiosyncratic_shock = float(
+                rng.normal(
+                    0.0,
+                    hourly_volatility,
+                )
             )
 
-            sector_factor = 0.0
+            sector_return = sector_factors.get(
+                sector,
+                market_factor,
+            )
 
-            for other_stock in stocks:
-                other_symbol = str(
-                    other_stock.symbol
-                ).upper()
+            sentiment_nudge = (
+                sentiment - 0.5
+            ) * 0.0002
 
-                if other_symbol == symbol:
-                    continue
+            momentum_drift = (
+                momentum * 0.0001
+            )
 
-                other_return = stock_returns.get(
-                    other_symbol
-                )
+            institutional_drift = (
+                institutional_pressure
+                * 0.0005
+            )
 
-                if other_return is None:
-                    continue
-
-                correlation = (
-                    MarketEngine._sector_correlation(
-                        str(stock.sector),
-                        str(other_stock.sector),
-                    )
-                )
-
-                sector_factor += (
-                    other_return
-                    * correlation
-                    * 0.05
-                )
-
-            event_impact = float(
+            event_shock = float(
                 event_shocks.get(
                     symbol,
                     0.0,
                 )
             )
 
-            sector_impact = float(
-                sector_shocks.get(
-                    str(stock.sector),
-                    0.0,
+            total_return = (
+                fundamental_hourly
+                + (
+                    beta
+                    * sector_return
+                    * market_sensitivity
+                )
+                + sentiment_nudge
+                + momentum_drift
+                + institutional_drift
+                + idiosyncratic_shock
+                + (
+                    event_shock
+                    * event_sensitivity
                 )
             )
 
-            return_value = (
-                drift
-                + market_factor
-                + idiosyncratic
-                + sector_factor
-                + sector_impact
-                + event_impact
+            total_return = float(
+                np.clip(
+                    total_return,
+                    -0.30,
+                    0.30,
+                )
             )
 
-            regime_multiplier = {
-                "BULL": 1.0,
-                "STABLE": 1.0,
-                "VOLATILE": 1.20,
-                "BEAR": 1.15,
-                "CRISIS": 1.50,
-            }.get(
-                regime,
+            new_price = max(
                 1.0,
-            )
-
-            return_value *= regime_multiplier
-
-            stock_returns[symbol] = (
-                float(return_value)
-            )
-
-        stock_prices: dict[str, float] = {}
-
-        for stock in stocks:
-            symbol = str(
-                stock.symbol
-            ).upper()
-
-            old_price = max(
-                0.01,
-                float(stock.current_price),
-            )
-
-            return_value = stock_returns.get(
-                symbol,
-                0.0,
-            )
-
-            new_price = old_price * np.exp(
-                return_value
-            )
-
-            new_price = MarketEngine._clamp_price(
-                new_price
-            )
-
-            stock.current_price = round(
-                new_price,
-                4,
-            )
-
-            stock_prices[symbol] = (
-                stock.current_price
-            )
-
-        indices = MarketEngine._update_indices(
-            game,
-            regime,
-            market_factor,
-            rng,
-        )
-
-        if game.regime_days_remaining:
-            game.regime_days_remaining = max(
-                0,
-                int(game.regime_days_remaining) - 1,
-            )
-
-        return MarketTickResult(
-            regime=regime,
-            regime_changed=regime_changed,
-            index_values=indices,
-            stock_prices=stock_prices,
-        )
-
-    @staticmethod
-    def _update_indices(
-        game,
-        regime: str,
-        market_factor: float,
-        rng: np.random.Generator,
-    ) -> dict[str, float]:
-
-        current_indices = dict(
-            game.indices or {}
-        )
-
-        defaults = {
-            "NIFTY": 22000.0,
-            "SENSEX": 72000.0,
-            "BANKNIFTY": 47000.0,
-            "VIX": 14.0,
-            "GOLD": 70000.0,
-        }
-
-        for name, value in defaults.items():
-            current_indices.setdefault(
-                name,
-                value,
-            )
-
-        index_values = {}
-
-        equity_multiplier = {
-            "BULL": 1.10,
-            "STABLE": 1.00,
-            "VOLATILE": 1.15,
-            "BEAR": 1.20,
-            "CRISIS": 1.40,
-        }.get(
-            regime,
-            1.0,
-        )
-
-        for name in (
-            "NIFTY",
-            "SENSEX",
-            "BANKNIFTY",
-        ):
-            index_return = (
-                market_factor
-                * equity_multiplier
-            )
-
-            index_return += float(
-                rng.normal(
-                    0.0,
-                    0.0015,
-                )
-            )
-
-            index_values[name] = round(
-                max(
-                    1.0,
-                    current_indices[name]
-                    * np.exp(index_return),
+                price
+                * (
+                    1.0
+                    + total_return
                 ),
+            )
+
+            new_price = round(
+                new_price,
                 2,
             )
 
-        vix_change = {
-            "BULL": -0.02,
-            "STABLE": 0.0,
-            "VOLATILE": 0.04,
-            "BEAR": 0.06,
-            "CRISIS": 0.12,
-        }.get(
-            regime,
-            0.0,
-        )
+            new_momentum = (
+                0.90 * momentum
+                + 0.10 * total_return
+            )
 
-        vix_return = (
-            vix_change
-            + abs(market_factor) * 1.5
-            + float(
-                rng.normal(
-                    0.0,
-                    0.01,
+            base_volume = max(
+                1,
+                int(
+                    1_000_000
+                    / max(
+                        1.0,
+                        new_price,
+                    )
+                ),
+            )
+
+            volume_factor = (
+                1.0
+                + abs(total_return)
+                * 50.0
+            )
+
+            stock_volume = int(
+                base_volume
+                * volume_factor
+                * rng.uniform(
+                    0.80,
+                    1.20,
                 )
             )
-        )
 
-        index_values["VIX"] = round(
-            max(
-                8.0,
-                current_indices["VIX"]
-                * np.exp(vix_return),
-            ),
-            2,
-        )
-
-        gold_return = (
-            -market_factor * 0.15
-            + (
-                0.004
-                if regime == "CRISIS"
-                else 0.0
+            new_daily_high = max(
+                daily_high,
+                new_price,
             )
-            + float(
-                rng.normal(
+
+            new_daily_low = min(
+                daily_low,
+                new_price,
+            )
+
+            new_sentiment = float(
+                np.clip(
+                    sentiment
+                    + rng.normal(
+                        0.0,
+                        0.01,
+                    ),
                     0.0,
-                    0.001,
+                    1.0,
                 )
             )
+
+            new_institutional_pressure = float(
+                np.clip(
+                    institutional_pressure
+                    * 0.95,
+                    -1.0,
+                    1.0,
+                )
+            )
+
+            daily_return = (
+                (
+                    new_price
+                    / daily_open
+                )
+                - 1.0
+            )
+
+            updated_stocks.append(
+                StockSnapshot(
+                    symbol=symbol,
+                    name=name,
+                    sector=sector,
+                    current_price=new_price,
+                    previous_price=price,
+                    daily_open=daily_open,
+                    daily_high=new_daily_high,
+                    daily_low=new_daily_low,
+                    volume=stock_volume,
+                    daily_return=daily_return,
+                    volatility=volatility,
+                    beta=beta,
+                    sentiment=new_sentiment,
+                    momentum=new_momentum,
+                    growth=growth,
+                    profitability=profitability,
+                    debt=debt,
+                    valuation=valuation,
+                    market_sensitivity=market_sensitivity,
+                    event_sensitivity=event_sensitivity,
+                    institutional_pressure=(
+                        new_institutional_pressure
+                    ),
+                )
+            )
+
+        (
+            new_regime,
+            regime_changed,
+            selected_regime,
+        ) = MarketEngine._transition_regime(
+            game,
+            params,
+            rng,
         )
 
-        index_values["GOLD"] = round(
-            max(
-                1000.0,
-                current_indices["GOLD"]
-                * np.exp(gold_return),
+        return MarketTickResult(
+            updated_stocks=updated_stocks,
+            nifty=round(nifty, 2),
+            sensex=round(sensex, 2),
+            bank_nifty=round(
+                bank_nifty,
+                2,
             ),
-            2,
+            india_vix=round(
+                india_vix,
+                2,
+            ),
+            usdinr=round(
+                usdinr,
+                4,
+            ),
+            gold=round(
+                gold,
+                2,
+            ),
+            nasdaq=round(
+                nasdaq,
+                2,
+            ),
+            sp500=round(
+                sp500,
+                2,
+            ),
+            market_regime=new_regime,
+            regime_changed=regime_changed,
+            new_regime=selected_regime,
         )
-
-        return index_values
 
     @staticmethod
     def reset_daily_ohlc(
         stocks: list,
-    ) -> None:
+    ) -> list:
 
         for stock in stocks:
             price = max(
-                0.01,
-                float(stock.current_price),
+                1.0,
+                float(
+                    MarketEngine._get(
+                        stock,
+                        "current_price",
+                        1.0,
+                    )
+                ),
             )
 
-            stock.day_open = price
-            stock.day_high = price
-            stock.day_low = price
-            stock.day_close = price
-            stock.day_volume = 0
+            if hasattr(
+                stock,
+                "daily_open",
+            ):
+                stock.daily_open = price
 
-    @staticmethod
-    def update_daily_ohlc(
-        stocks: list,
-        volume_multiplier: float = 1.0,
-    ) -> None:
+            if hasattr(
+                stock,
+                "daily_high",
+            ):
+                stock.daily_high = price
 
-        volume_multiplier = max(
-            0.0,
-            float(volume_multiplier),
-        )
+            if hasattr(
+                stock,
+                "daily_low",
+            ):
+                stock.daily_low = price
 
-        for stock in stocks:
-            price = max(
-                0.01,
-                float(stock.current_price),
-            )
+            if hasattr(
+                stock,
+                "volume",
+            ):
+                stock.volume = 0
 
-            if stock.day_open is None:
-                stock.day_open = price
-
-            if stock.day_high is None:
-                stock.day_high = price
-
-            if stock.day_low is None:
-                stock.day_low = price
-
-            stock.day_high = max(
-                float(stock.day_high),
-                price,
-            )
-
-            stock.day_low = min(
-                float(stock.day_low),
-                price,
-            )
-
-            stock.day_close = price
-
-            base_volume = max(
-                0,
-                int(stock.avg_volume),
-            )
-
-            hourly_volume = (
-                base_volume
-                / 8.0
-            )
-
-            stock.day_volume = int(
-                (stock.day_volume or 0)
-                + max(
-                    1,
-                    hourly_volume
-                    * volume_multiplier,
-                )
-            )
+        return stocks

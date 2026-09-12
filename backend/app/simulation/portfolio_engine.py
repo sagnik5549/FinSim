@@ -119,8 +119,14 @@ class PortfolioEngine:
                     "avg_buy_price": avg_buy_price,
                     "current_price": price,
                     "cost_basis": cost_basis,
+                    "current_value": market_value,
                     "market_value": market_value,
                     "unrealized_pnl": position_pnl,
+                    "unrealized_pnl_pct": (
+                        (position_pnl / cost_basis * 100)
+                        if cost_basis > 0
+                        else 0.0
+                    ),
                 }
             )
 
@@ -188,7 +194,7 @@ class PortfolioEngine:
 
             largest_position = largest["symbol"]
             largest_position_pct = (
-                largest["market_value"]
+                largest["current_value"]
                 / total_value
                 if total_value > 0
                 else 0.0
@@ -209,7 +215,7 @@ class PortfolioEngine:
                     continue
 
                 weight = (
-                    item["market_value"]
+                    item["current_value"]
                     / total_value
                 )
 
