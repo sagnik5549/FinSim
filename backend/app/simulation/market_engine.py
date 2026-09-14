@@ -121,9 +121,6 @@ class MarketEngine:
         if not probabilities:
             return current, False, None
 
-        if rng.random() >= 0.015:
-            return current, False, None
-
         regimes = list(
             probabilities.keys()
         )

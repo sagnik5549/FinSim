@@ -89,6 +89,11 @@ class PortfolioEngine:
                 float(stock.current_price),
             )
 
+            daily_open = max(
+                0.0,
+                float(stock.daily_open),
+            )
+
             avg_buy_price = max(
                 0.0,
                 float(holding.avg_buy_price),
@@ -125,6 +130,11 @@ class PortfolioEngine:
                     "unrealized_pnl_pct": (
                         (position_pnl / cost_basis * 100)
                         if cost_basis > 0
+                        else 0.0
+                    ),
+                    "daily_return": (
+                        (price / daily_open) - 1.0
+                        if daily_open > 0
                         else 0.0
                     ),
                 }

@@ -3,6 +3,8 @@ from typing import Optional
 
 from app.simulation.constants import CAREER_LEVELS
 
+MIN_REPUTATION_FOR_REVIEW_PASS = 30.0
+
 
 @dataclass
 class CareerUpdate:
@@ -95,7 +97,7 @@ class CareerEngine:
         target_met = total_return_pct >= quarterly_target_return
         drawdown_ok = max_drawdown <= max_drawdown_limit * 100
         risk_ok = risk_violations_count == 0
-        reputation_ok = reputation >= 30
+        reputation_ok = reputation >= MIN_REPUTATION_FOR_REVIEW_PASS
 
         performance_score = CareerEngine._performance_score(
             total_return_pct=total_return_pct,

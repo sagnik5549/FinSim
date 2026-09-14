@@ -12,7 +12,6 @@ from app.schemas.game_schemas import (
     QuarterlyReviewResponse,
 )
 from app.services import game_service
-from app.simulation.constants import MARKET_CLOSE_HOUR
 
 
 router = APIRouter()
@@ -136,15 +135,9 @@ def advance_to_close(
             detail="Game not found.",
         )
 
-    hours_to_close = max(
-        1,
-        MARKET_CLOSE_HOUR - game.game_hour,
-    )
-
     try:
-        return game_service.advance_game_time(
+        return game_service.advance_to_market_close(
             req.game_id,
-            hours_to_close,
             db,
         )
     except ValueError as exc:
@@ -174,14 +167,9 @@ def advance_next_business_day(
             detail="Game not found.",
         )
 
-    hours_to_advance = (
-        MARKET_CLOSE_HOUR - game.game_hour + 1
-    )
-
     try:
-        return game_service.advance_game_time(
+        return game_service.advance_to_next_business_day(
             req.game_id,
-            hours_to_advance,
             db,
         )
     except ValueError as exc:

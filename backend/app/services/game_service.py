@@ -351,7 +351,7 @@ def build_state_response(
         last_review_result=game.last_review_result,
     )
 
-    market_tick = (
+    market_ticks = (
         db.query(MarketTick)
         .filter(
             MarketTick.game_id == game.id
@@ -359,7 +359,14 @@ def build_state_response(
         .order_by(
             MarketTick.tick_index.desc()
         )
-        .first()
+        .limit(2)
+        .all()
+    )
+
+    previous_tick = (
+        market_ticks[1]
+        if len(market_ticks) > 1
+        else None
     )
 
     previous = {
@@ -373,16 +380,16 @@ def build_state_response(
         "SP500": INDEX_DEFAULTS["sp500"],
     }
 
-    if market_tick:
+    if previous_tick:
         previous = {
-            "NIFTY50": market_tick.nifty,
-            "SENSEX": market_tick.sensex,
-            "BANKNIFTY": market_tick.bank_nifty,
-            "INDIAVIX": market_tick.india_vix,
-            "USDINR": market_tick.usdinr,
-            "GOLD": market_tick.gold,
-            "NASDAQ": market_tick.nasdaq,
-            "SP500": market_tick.sp500,
+            "NIFTY50": previous_tick.nifty,
+            "SENSEX": previous_tick.sensex,
+            "BANKNIFTY": previous_tick.bank_nifty,
+            "INDIAVIX": previous_tick.india_vix,
+            "USDINR": previous_tick.usdinr,
+            "GOLD": previous_tick.gold,
+            "NASDAQ": previous_tick.nasdaq,
+            "SP500": previous_tick.sp500,
         }
 
     index_values = [
@@ -976,6 +983,7 @@ def _simulate_market_hour(
         stocks=stocks,
         game=game,
         rng=rng,
+        probability_multiplier=director.suggested_event_boost,
     )
 
     for event in events:

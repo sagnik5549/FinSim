@@ -3,8 +3,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.db_models import Game
-from app.simulation.constants import CAREER_LEVELS
-from app.simulation.career_engine import CareerEngine
+from app.simulation.constants import CAREER_LEVELS, PAID_LEAVE_PER_YEAR, CAREER_DAYS
+from app.simulation.career_engine import (
+    CareerEngine,
+    MIN_REPUTATION_FOR_REVIEW_PASS,
+)
 
 
 router = APIRouter()
@@ -133,13 +136,13 @@ def get_career(
 
         "promotion": {
             "target_required": float(
-                level_data.get("return_target", 12.0)
+                level_data.get("target_return_pct", 12.0)
             ),
             "max_drawdown_allowed": float(
-                level_data.get("max_drawdown", 10.0)
+                level_data.get("max_drawdown_limit", 0.10) * 100
             ),
             "minimum_reputation": float(
-                level_data.get("min_reputation", 75.0)
+                MIN_REPUTATION_FOR_REVIEW_PASS
             ),
             "can_be_promoted": next_level is not None,
         },
@@ -152,13 +155,13 @@ def get_career(
         },
 
         "leave": {
-            "annual_allowance": 60,
+            "annual_allowance": PAID_LEAVE_PER_YEAR,
             "used": leave_used,
             "remaining": leave_balance,
         },
 
         "status": {
-            "career_active": career_day <= 90,
+            "career_active": career_day <= CAREER_DAYS,
             "can_be_promoted": next_level is not None,
             "can_be_demoted": previous_level is not None,
         },

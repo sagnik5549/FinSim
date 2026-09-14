@@ -274,6 +274,32 @@ class TimeEngine:
             ):
                 break
 
+        if (
+            not results
+            and not current.is_weekend
+            and current.game_hour < MARKET_CLOSE_HOUR
+        ):
+            next_day_date = current.game_date + timedelta(days=1)
+            while next_day_date.weekday() >= 5:
+                next_day_date += timedelta(days=1)
+
+            result = TimeEngine._make_state(
+                state=current,
+                game_date=next_day_date,
+                game_hour=MARKET_OPEN_HOUR,
+                career_day=current.career_day + 1,
+            )
+            results.append(
+                AdvanceResult(
+                    new_state=result,
+                    crossed_day_boundary=True,
+                    crossed_weekend=next_day_date.weekday() >= 5,
+                    market_was_open=current.is_market_open,
+                    hours_processed=1,
+                    new_career_day=True,
+                )
+            )
+
         return results
 
     @staticmethod
@@ -423,7 +449,6 @@ class TimeEngine:
         if game_hour < MARKET_OPEN_HOUR:
             return (
                 (career_day - 1) * len(WORKING_HOURS)
-                - 1
             )
 
         if game_hour >= MARKET_CLOSE_HOUR:
