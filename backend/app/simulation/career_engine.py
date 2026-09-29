@@ -1,405 +1,286 @@
-from dataclasses import dataclass
-from typing import Optional
+"""
+Career engine — targets, reputation, XP, warnings and the quarterly review.
 
-from app.simulation.constants import CAREER_LEVELS
+The review judges several dimensions, not just profit:
+  return vs target, drawdown vs mandate, risk-policy conduct, reputation and
+  decision quality (research-backed theses that proved right).
+"""
+from __future__ import annotations
 
-MIN_REPUTATION_FOR_REVIEW_PASS = 30.0
+from datetime import datetime, timedelta
+from typing import Any
 
+import numpy as np
 
-@dataclass
-class CareerUpdate:
-    xp_gained: int
-    reputation_change: float
-    level_up: bool
-    new_level: Optional[int]
-    notification: Optional[str]
+from app.simulation import portfolio_engine as pe
+from app.simulation.constants import CAREER_LEVELS, CRORE, MAX_LEVEL, QUARTER_DAYS, TERMINATION_DRAWDOWN, XP_PER_LEVEL
+from app.simulation.state import Career, GameState, ReviewRecord
 
-
-@dataclass
-class QuarterlyReviewResult:
-    outcome: str
-    final_return: float
-    target_return: float
-    max_drawdown: float
-    reputation: float
-    xp: int
-    summary: str
-    ceo_message: str
-    next_capital: Optional[float]
-    xp_awarded: int
-    reputation_change: float
-    can_advance: bool = False
-    next_level: Optional[int] = None
-    next_role_title: Optional[str] = None
-    capital_injection: Optional[float] = 0.0
-    capital_injection_cr: Optional[float] = 0.0
-    next_target_return: Optional[float] = None
-    next_drawdown_limit: Optional[float] = None
-    next_perks: Optional[list[str]] = None
-    failure_count: int = 0
-    demoted: bool = False
-    terminated: bool = False
+MILESTONES = (0.25, 0.5, 0.75, 0.9, 1.0)
 
 
-class CareerEngine:
+def new_career(start: datetime, capital: float, reputation: float) -> Career:
+    lvl = CAREER_LEVELS[1]
+    return Career(
+        level=1, title=lvl["title"], reputation=reputation, quarter_index=1, quarter_start=start,
+        quarter_end=start + timedelta(days=QUARTER_DAYS), target_value=capital * (1 + lvl["target_return"]),
+        target_return=lvl["target_return"], max_drawdown_limit=lvl["max_drawdown"], reputation_at_quarter_start=reputation,
+    )
 
-    @staticmethod
-    def update_per_tick(
-        career_level: int,
-        xp: int,
-        reputation: float,
-        total_return_pct: float,
-        risk_assessment,
-        target_progress: float,
-    ) -> CareerUpdate:
-        xp_gain = 1
-        reputation_change = 0.0
 
-        if total_return_pct > 0:
-            xp_gain += min(5, int(total_return_pct * 0.5))
+def target_progress(state: GameState) -> float:
+    c = state.career
+    start = state.portfolio.quarter_start_value
+    need = c.target_value - start
+    return (pe.nav(state) - start) / need if need else 0.0
 
-        if target_progress >= 1.0:
-            xp_gain += 1
 
-        if total_return_pct > 0.1:
-            reputation_change += 0.02
-        elif total_return_pct < -0.5:
-            reputation_change -= 0.05
+def time_progress(state: GameState) -> float:
+    c = state.career
+    return min(1.0, max(0.0, (state.now - c.quarter_start) / (c.quarter_end - c.quarter_start)))
 
-        if risk_assessment and risk_assessment.is_violation:
-            xp_gain = max(0, xp_gain - 2)
-            reputation_change -= 0.1
 
-        return CareerUpdate(
-            xp_gained=xp_gain,
-            reputation_change=reputation_change,
-            level_up=False,
-            new_level=None,
-            notification=None,
-        )
+def add_rep(state: GameState, delta: float, reason: str = "") -> float:
+    c = state.career
+    before = c.reputation
+    c.reputation = float(np.clip(c.reputation + delta, 0, 100))
+    return c.reputation - before
 
-    @staticmethod
-    def quarterly_review(
-        career_level: int,
-        reputation: float,
-        xp: int,
-        total_return_pct: float,
-        quarterly_target_return: float,
-        max_drawdown: float,
-        max_drawdown_limit: float,
-        risk_violations_count: int,
-        failure_count: int = 0,
-    ) -> QuarterlyReviewResult:
 
-        current_level = CAREER_LEVELS.get(career_level, CAREER_LEVELS[1])
-        max_level = max(CAREER_LEVELS)
+def add_xp(state: GameState, xp: int) -> None:
+    state.career.xp = max(0, state.career.xp + int(xp))
 
-        target_met = total_return_pct >= quarterly_target_return
-        drawdown_ok = max_drawdown <= max_drawdown_limit * 100
-        risk_ok = risk_violations_count == 0
-        reputation_ok = reputation >= MIN_REPUTATION_FOR_REVIEW_PASS
 
-        performance_score = CareerEngine._performance_score(
-            total_return_pct=total_return_pct,
-            target_return=quarterly_target_return,
-            max_drawdown=max_drawdown,
-            max_drawdown_limit=max_drawdown_limit,
-            risk_violations_count=risk_violations_count,
-            reputation=reputation,
-        )
+def xp_bounds(level: int) -> tuple[int, int]:
+    return XP_PER_LEVEL[level - 1], XP_PER_LEVEL[min(level, len(XP_PER_LEVEL) - 1)]
 
-        passed = (
-            target_met
-            and drawdown_ok
-            and risk_ok
-            and reputation_ok
-            and performance_score >= 70
-        )
 
-        xp_awarded = 0
-        reputation_change = 0.0
+def log_decision(state: GameState, kind: str, text: str, impact: str = "") -> None:
+    state.career.decisions.append({"t": state.now.isoformat(), "kind": kind, "text": text, "impact": impact})
+    state.career.decisions = state.career.decisions[-60:]
 
-        if passed:
-            new_failure_count = 0
-            xp_awarded = 500
-            reputation_change = 15.0
 
-            if career_level >= max_level:
-                return QuarterlyReviewResult(
-                    outcome="TARGET_ACHIEVED",
-                    final_return=round(total_return_pct, 2),
-                    target_return=quarterly_target_return,
-                    max_drawdown=round(max_drawdown, 2),
-                    reputation=reputation,
-                    xp=xp,
-                    summary=(
-                        f"Exceptional performance. You achieved "
-                        f"{total_return_pct:.1f}% against the "
-                        f"{quarterly_target_return:.1f}% target while "
-                        f"maintaining acceptable risk."
-                    ),
-                    ceo_message=(
-                        "You've reached the highest level. "
-                        "Now the expectation is to defend the franchise."
-                    ),
-                    next_capital=None,
-                    xp_awarded=xp_awarded,
-                    reputation_change=reputation_change,
-                    can_advance=False,
-                    next_level=None,
-                    next_role_title=None,
-                    capital_injection=0.0,
-                    capital_injection_cr=0.0,
-                    next_target_return=None,
-                    next_drawdown_limit=None,
-                    next_perks=current_level.get("perks", []),
-                    failure_count=new_failure_count,
-                )
+def daily_reputation(state: GameState, day_ret: float, bench_ret: float, ignored_recent: int) -> float:
+    """Small daily drift: beating the benchmark builds credibility; freshly ignored breaches erode it."""
+    excess = (day_ret - bench_ret) * 100
+    delta = float(np.clip(excess * 0.35, -0.8, 0.8)) - min(1.0, 0.5 * ignored_recent)
+    return add_rep(state, delta)
 
-            next_level = career_level + 1
-            next_data = CAREER_LEVELS[next_level]
-            capital_injection = next_data.get("capital_injection", 0.0)
 
-            return QuarterlyReviewResult(
-                outcome="PROMOTED",
-                final_return=round(total_return_pct, 2),
-                target_return=quarterly_target_return,
-                max_drawdown=round(max_drawdown, 2),
-                reputation=reputation,
-                xp=xp,
-                summary=(
-                    f"Target achieved with a performance score of "
-                    f"{performance_score:.1f}. You have earned promotion "
-                    f"to Level {next_level}."
-                ),
-                ceo_message=(
-                    f"Excellent work. You've earned your promotion to "
-                    f"{next_data['title']}."
-                ),
-                next_capital=next_data.get("starting_capital"),
-                xp_awarded=xp_awarded,
-                reputation_change=reputation_change,
-                can_advance=True,
-                next_level=next_level,
-                next_role_title=next_data.get("title"),
-                capital_injection=capital_injection,
-                capital_injection_cr=round(
-                    capital_injection / 10_000_000,
-                    2,
-                ),
-                next_target_return=next_data.get("target_return_pct"),
-                next_drawdown_limit=round(
-                    next_data.get("max_drawdown_limit", 0.10) * 100,
-                    2,
-                ),
-                next_perks=next_data.get("perks", []),
-                failure_count=new_failure_count,
-            )
+def check_milestones(state: GameState) -> list[float]:
+    prog = target_progress(state)
+    hit = []
+    for m in MILESTONES:
+        key = f"Q{state.career.quarter_index}-{int(m * 100)}"
+        if prog >= m and key not in state.career.milestones_hit:
+            state.career.milestones_hit.append(key)
+            hit.append(m)
+            add_xp(state, 60 if m < 1 else 250)
+            if m >= 1:
+                add_rep(state, 3)
+    return hit
 
-        new_failure_count = failure_count + 1
 
-        if new_failure_count == 1:
-            xp_awarded = 150
-            reputation_change = -5.0
+def drawdown_check(state: GameState) -> str | None:
+    """Returns 'TERMINATE', 'WARN' or None."""
+    dd = pe.current_drawdown(state)
+    c = state.career
+    if dd >= TERMINATION_DRAWDOWN:
+        return "TERMINATE"
+    if dd > c.max_drawdown_limit and not c.dd_breach_warned:
+        c.dd_breach_warned = True
+        return "WARN"
+    return None
 
-            return QuarterlyReviewResult(
-                outcome="WARNING",
-                final_return=round(total_return_pct, 2),
-                target_return=quarterly_target_return,
-                max_drawdown=round(max_drawdown, 2),
-                reputation=reputation,
-                xp=xp,
-                summary=CareerEngine._failure_summary(
-                    total_return_pct,
-                    quarterly_target_return,
-                    max_drawdown,
-                    max_drawdown_limit,
-                    risk_violations_count,
-                    performance_score,
-                ),
-                ceo_message=(
-                    "This quarter fell short of expectations. "
-                    "This is your first warning. You have one more chance "
-                    "to demonstrate that you can perform at this level."
-                ),
-                next_capital=None,
-                xp_awarded=xp_awarded,
-                reputation_change=reputation_change,
-                can_advance=False,
-                next_level=None,
-                next_role_title=None,
-                capital_injection=0.0,
-                capital_injection_cr=0.0,
-                next_target_return=quarterly_target_return,
-                next_drawdown_limit=round(
-                    max_drawdown_limit * 100,
-                    2,
-                ),
-                next_perks=current_level.get("perks", []),
-                failure_count=new_failure_count,
-            )
 
-        if career_level == 1:
-            return QuarterlyReviewResult(
-                outcome="TERMINATED",
-                final_return=round(total_return_pct, 2),
-                target_return=quarterly_target_return,
-                max_drawdown=round(max_drawdown, 2),
-                reputation=reputation,
-                xp=xp,
-                summary=(
-                    "Performance remained below the required standard "
-                    "after a previous warning."
-                ),
-                ceo_message=(
-                    "We gave you another opportunity, but the required "
-                    "improvement did not materialize. Your employment is "
-                    "terminated."
-                ),
-                next_capital=None,
-                xp_awarded=50,
-                reputation_change=-20.0,
-                can_advance=False,
-                next_level=None,
-                next_role_title=None,
-                capital_injection=0.0,
-                capital_injection_cr=0.0,
-                next_target_return=None,
-                next_drawdown_limit=None,
-                next_perks=[],
-                failure_count=new_failure_count,
-                terminated=True,
-            )
+def escalate_warning(state: GameState) -> str:
+    c = state.career
+    c.warning_level += 1
+    if c.warning_level >= 3:
+        c.status = "TERMINATED"
+        return "TERMINATED"
+    return "FINAL WARNING" if c.warning_level == 2 else "WARNING"
 
-        previous_level = career_level
-        next_level = career_level - 1
-        next_data = CAREER_LEVELS[next_level]
 
-        return QuarterlyReviewResult(
-            outcome="FAILED",
-            final_return=round(total_return_pct, 2),
-            target_return=quarterly_target_return,
-            max_drawdown=round(max_drawdown, 2),
-            reputation=reputation,
-            xp=xp,
-            summary=(
-                f"Performance remained below the Level {previous_level} "
-                f"standard after a previous warning. You have been "
-                f"demoted to Level {next_level}."
-            ),
-            ceo_message=(
-                f"This is your second consecutive failure. "
-                f"You will remain with the firm, but you are being "
-                f"demoted to {next_data['title']}."
-            ),
-            next_capital=next_data.get("starting_capital"),
-            xp_awarded=50,
-            reputation_change=-10.0,
-            can_advance=False,
-            next_level=next_level,
-            next_role_title=next_data.get("title"),
-            capital_injection=0.0,
-            capital_injection_cr=0.0,
-            next_target_return=next_data.get("target_return_pct"),
-            next_drawdown_limit=round(
-                next_data.get("max_drawdown_limit", 0.10) * 100,
-                2,
-            ),
-            next_perks=next_data.get("perks", []),
-            failure_count=0,
-            demoted=True,
-        )
+# --------------------------------------------------------------------------- #
+# Decision quality
+# --------------------------------------------------------------------------- #
+def thesis_accuracy(state: GameState) -> dict[str, Any]:
+    q_start = state.career.quarter_start
+    items = [t for t in state.theses if t.time >= q_start and t.stance != "NEUTRAL"]
+    right = 0
+    for t in items:
+        move = state.stocks[t.symbol].price / t.price_at - 1
+        if (t.stance == "BULLISH" and move > 0.01) or (t.stance == "BEARISH" and move < -0.01):
+            right += 1
+    return {"count": len(items), "correct": right, "accuracy": right / len(items) if items else None}
 
-    @staticmethod
-    def _performance_score(
-        total_return_pct: float,
-        target_return: float,
-        max_drawdown: float,
-        max_drawdown_limit: float,
-        risk_violations_count: int,
-        reputation: float,
-    ) -> float:
-        if target_return <= 0:
-            return 0.0
 
-        return_score = min(
-            100.0,
-            max(0.0, (total_return_pct / target_return) * 100),
-        )
+def best_and_worst(state: GameState) -> tuple[dict | None, dict | None]:
+    q_start = state.career.quarter_start.isoformat()
+    closed = [t for t in state.stats.closed_trades if t["t"] >= q_start]
+    open_pos = [{"symbol": h.symbol, "pnl": round(h.qty * (state.stocks[h.symbol].price - h.avg_cost), 2),
+                 "pct": round(state.stocks[h.symbol].price / h.avg_cost - 1, 4), "open": True}
+                for h in state.portfolio.holdings.values()]
+    agg: dict[str, dict] = {}
+    for t in closed + open_pos:
+        a = agg.setdefault(t["symbol"], {"symbol": t["symbol"], "pnl": 0.0})
+        a["pnl"] += t["pnl"]
+    if not agg:
+        return None, None
+    ranked = sorted(agg.values(), key=lambda x: x["pnl"])
+    for r in ranked:
+        r["name"] = state.stocks[r["symbol"]].name
+        r["pnl"] = round(r["pnl"], 2)
+    return ranked[-1], ranked[0]
 
-        drawdown_limit_pct = max_drawdown_limit * 100
 
-        if drawdown_limit_pct <= 0:
-            risk_score = 0.0
-        elif max_drawdown <= drawdown_limit_pct:
-            risk_score = 100.0
-        else:
-            excess = max_drawdown - drawdown_limit_pct
-            risk_score = max(
-                0.0,
-                100.0 - (excess / drawdown_limit_pct) * 100,
-            )
+# --------------------------------------------------------------------------- #
+# Quarterly review
+# --------------------------------------------------------------------------- #
+def quarterly_review(state: GameState) -> dict[str, Any]:
+    c = state.career
+    p = state.portfolio
+    end_value = pe.nav(state)
+    ret = end_value / p.quarter_start_value - 1
+    bench_ret = state.indices["BH50"].value / p.quarter_start_bench - 1
+    target = c.target_return
+    mdd = p.max_drawdown
+    ignored = c.ignored_violations
+    dq = thesis_accuracy(state)
+    best, worst = best_and_worst(state)
 
-        violation_score = max(
-            0.0,
-            100.0 - (risk_violations_count * 20.0),
-        )
+    # Scorecard: each dimension 0..100
+    s_return = float(np.clip(50 + (ret / target) * 50 if target else 50, 0, 100))
+    s_risk = float(np.clip(100 - (mdd / c.max_drawdown_limit) * 60 - ignored * 12 - c.compliance_strikes * 8, 0, 100))
+    s_rep = c.reputation
+    s_alpha = float(np.clip(50 + (ret - bench_ret) * 500, 0, 100))
+    s_dq = 50.0 if dq["accuracy"] is None else float(np.clip(dq["accuracy"] * 100, 0, 100))
+    overall = 0.40 * s_return + 0.25 * s_risk + 0.15 * s_rep + 0.12 * s_alpha + 0.08 * s_dq
 
-        reputation_score = min(
-            100.0,
-            max(0.0, reputation),
-        )
+    hit_target = ret >= target - 1e-9
+    dd_ok = mdd <= c.max_drawdown_limit
+    conduct_ok = ignored <= 1 and c.compliance_strikes <= 2
 
-        return (
-            return_score * 0.45
-            + risk_score * 0.25
-            + violation_score * 0.15
-            + reputation_score * 0.15
-        )
+    if mdd >= TERMINATION_DRAWDOWN or c.reputation < 20:
+        outcome = "TERMINATED"
+    elif hit_target and dd_ok and conduct_ok and c.reputation >= 55:
+        outcome = "PROMOTED" if c.level < MAX_LEVEL else "TARGET ACHIEVED"
+    elif hit_target:
+        outcome = "TARGET ACHIEVED"
+    elif overall >= 55 and ret > 0:
+        outcome = "WARNING"
+    elif overall >= 40:
+        outcome = "WARNING"
+    else:
+        outcome = "FAILED"
 
-    @staticmethod
-    def _failure_summary(
-        total_return_pct: float,
-        target_return: float,
-        max_drawdown: float,
-        max_drawdown_limit: float,
-        risk_violations_count: int,
-        performance_score: float,
-    ) -> str:
-        reasons = []
+    # Warning ladder: WARNING -> FINAL WARNING -> TERMINATED (FAILED also costs more reputation).
+    ladder_note = None
+    if outcome in ("WARNING", "FAILED"):
+        c.warning_level += 1
+        if c.warning_level >= 3:
+            outcome, ladder_note = "TERMINATED", "Previous warnings exhausted."
+        elif c.warning_level == 2:
+            ladder_note = "FINAL WARNING — one more miss and the board will let you go."
+    elif outcome in ("PROMOTED", "TARGET ACHIEVED"):
+        c.warning_level = max(0, c.warning_level - 1)
 
-        if total_return_pct < target_return:
-            reasons.append(
-                f"return {total_return_pct:.1f}% was below "
-                f"the {target_return:.1f}% target"
-            )
+    rep_delta = {"PROMOTED": 8, "TARGET ACHIEVED": 4, "WARNING": -4, "FAILED": -10, "TERMINATED": -15}[outcome]
+    rep_delta += float(np.clip((ret - bench_ret) * 40, -4, 4))
+    rep_before = c.reputation
+    add_rep(state, rep_delta)
+    xp_gain = {"PROMOTED": 800, "TARGET ACHIEVED": 500, "WARNING": 150, "FAILED": 50, "TERMINATED": 0}[outcome]
+    add_xp(state, xp_gain)
 
-        if max_drawdown > max_drawdown_limit * 100:
-            reasons.append(
-                f"drawdown {max_drawdown:.1f}% exceeded the "
-                f"{max_drawdown_limit * 100:.1f}% limit"
-            )
+    ceo_lines = _ceo_verdict(outcome, ret, target, mdd, c.max_drawdown_limit)
+    if outcome in ("TERMINATED", "FAILED", "WARNING", "TARGET ACHIEVED") and (ignored > 1 or c.compliance_strikes > 2 or rep_before < 30):
+        why = []
+        if ignored > 1:
+            why.append(f"you overruled the risk desk {ignored} times")
+        if c.compliance_strikes > 2:
+            why.append(f"compliance filed {c.compliance_strikes} strikes")
+        if rep_before < 30:
+            why.append("your standing with the board collapsed")
+        ceo_lines = ceo_lines[:1] + [("The numbers aren't the whole story: " + ", ".join(why) + ".").capitalize()] + ceo_lines[1:]
+    cfo_line = (f"Return {ret * 100:+.2f}% against a {target * 100:.0f}% target; benchmark {bench_ret * 100:+.2f}%. "
+                f"Fees paid ₹{p.fees_paid / 1e5:,.1f} lakh.")
+    risk_line = (f"Peak-to-trough drawdown {mdd * 100:.2f}% vs {c.max_drawdown_limit * 100:.0f}% limit. "
+                 f"{c.risk_violations} policy breaches, {ignored} ignored, {c.exceptions_granted} exceptions granted.")
 
-        if risk_violations_count > 0:
-            reasons.append(
-                f"{risk_violations_count} risk violation(s) occurred"
-            )
+    review = {
+        "quarter": c.quarter_index, "level": c.level, "title": c.title, "outcome": outcome,
+        "start_value": p.quarter_start_value, "end_value": end_value, "return_pct": ret, "target_pct": target,
+        "target_value": c.target_value, "benchmark_pct": bench_ret, "max_drawdown": mdd,
+        "drawdown_limit": c.max_drawdown_limit, "risk_violations": c.risk_violations, "ignored_violations": ignored,
+        "compliance_strikes": c.compliance_strikes, "reputation_before": rep_before, "reputation_after": c.reputation,
+        "reputation_change": c.reputation - rep_before, "xp_gain": xp_gain,
+        "scores": {"return": round(s_return), "risk": round(s_risk), "reputation": round(s_rep),
+                   "alpha": round(s_alpha), "decision_quality": round(s_dq), "overall": round(overall)},
+        "decision_quality": dq, "best_decision": best, "worst_decision": worst,
+        "ceo": ceo_lines, "cfo": cfo_line, "risk_manager": risk_line, "ladder_note": ladder_note,
+        "warning_level": c.warning_level,
+        "next_level": (CAREER_LEVELS[c.level + 1]["title"] if outcome == "PROMOTED" else None),
+        "unlocks": (CAREER_LEVELS[c.level + 1]["unlocks"] if outcome == "PROMOTED" else []),
+    }
+    c.history.append(ReviewRecord(
+        quarter=c.quarter_index, level=c.level, title=c.title, outcome=outcome, start_value=p.quarter_start_value,
+        end_value=end_value, return_pct=ret, target_pct=target, max_drawdown=mdd,
+        reputation_change=c.reputation - rep_before, date=state.now.date().isoformat()))
+    c.last_review = review
+    c.status = "TERMINATED" if outcome == "TERMINATED" else "REVIEW"
+    if outcome == "PROMOTED":
+        c.achievements.append(f"Promoted to {CAREER_LEVELS[c.level + 1]['title']} (Q{c.quarter_index})")
+    if hit_target and f"target-q{c.quarter_index}" not in c.achievements:
+        c.achievements.append(f"Quarterly target achieved (Q{c.quarter_index})")
+    return review
 
-        if not reasons:
-            reasons.append("overall performance was below the required standard")
 
-        return (
-            f"Quarterly performance score: {performance_score:.1f}. "
-            + "; ".join(reasons)
-            + "."
-        )
+def _ceo_verdict(outcome, ret, target, mdd, limit) -> list[str]:
+    if outcome == "PROMOTED":
+        return ["Outstanding quarter.", f"{ret * 100:.1f}% with the risk book under control. That's what I hired you for.",
+                "The board has approved your promotion."]
+    if outcome == "TARGET ACHIEVED":
+        return ["You hit the number.", "But I need to see cleaner risk management before I put more capital behind you."]
+    if outcome == "WARNING":
+        return ["We missed the target.", f"{ret * 100:.1f}% against {target * 100:.0f}%. I expected more.",
+                "Consider this a formal warning."]
+    if outcome == "FAILED":
+        return ["This quarter was not acceptable.", "Performance was well short of mandate.",
+                "You are on a final warning."]
+    return ["I'm sorry. The board has lost confidence.", "Your mandate at Apex Capital is terminated, effective today."]
 
-    @staticmethod
-    def get_role_title(level: int) -> str:
-        return CAREER_LEVELS.get(
-            level,
-            CAREER_LEVELS[1],
-        ).get(
-            "title",
-            "Investment Professional",
-        )
+
+def begin_next_quarter(state: GameState) -> None:
+    """After a non-terminal review: roll targets forward (and apply promotion)."""
+    c = state.career
+    review = c.last_review or {}
+    if review.get("outcome") == "PROMOTED" and c.level < MAX_LEVEL:
+        c.level += 1
+        lvl = CAREER_LEVELS[c.level]
+        c.title = lvl["title"]
+        state.portfolio.cash += lvl["capital_add"]
+    lvl = CAREER_LEVELS[c.level]
+    start_value = pe.nav(state)
+    c.quarter_index += 1
+    c.quarter_start = state.now
+    c.quarter_end = state.now + timedelta(days=QUARTER_DAYS)
+    c.target_return = lvl["target_return"]
+    c.target_value = start_value * (1 + lvl["target_return"])
+    c.max_drawdown_limit = lvl["max_drawdown"]
+    c.risk_violations = 0
+    c.ignored_violations = 0
+    c.exceptions_granted = 0
+    c.compliance_strikes = 0
+    c.dd_breach_warned = False
+    c.reputation_at_quarter_start = c.reputation
+    c.status = "ACTIVE"
+    p = state.portfolio
+    p.quarter_start_value = start_value
+    p.quarter_start_bench = state.indices["BH50"].value
+    p.peak_value = start_value
+    p.max_drawdown = 0.0
+
+
+def capital_label(v: float) -> str:
+    return f"₹{v / CRORE:,.2f} Cr"

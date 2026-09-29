@@ -1,76 +1,115 @@
-import axios from 'axios';
-import type { GameState, TradeResult, CandleData, QuarterlyReview } from '../types/game';
+import type { ActionResponse, GameState, Quote, ResearchReport, SaveSlot, SymbolDetail, Transaction } from '../types/game'
 
-const API = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-});
+const GAME_KEY = 'ibm.gameId'
+const PLAYER_KEY = 'ibm.playerId'
 
-export const gameApi = {
-  newGame: async (playerName: string): Promise<{ game_id: string; message: string }> => {
-    const { data } = await API.post('/game/new', { player_name: playerName });
-    return data;
+export class ApiError extends Error {
+  code: string
+  status: number
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.status = status
+    this.code = code
+  }
+}
+
+export const session = {
+  get gameId(): string | null {
+    try {
+      return localStorage.getItem(GAME_KEY)
+    } catch {
+      return null
+    }
   },
-
-  getState: async (gameId: string): Promise<GameState> => {
-    const { data } = await API.get(`/game/state/${gameId}`);
-    return data;
+  get playerId(): string | null {
+    try {
+      return localStorage.getItem(PLAYER_KEY)
+    } catch {
+      return null
+    }
   },
-
-  advanceHour: async (gameId: string): Promise<GameState> => {
-    const { data } = await API.post('/game/advance-hour', { game_id: gameId, hours: 1 });
-    return data;
+  set playerId(id: string | null) {
+    try {
+      if (id) localStorage.setItem(PLAYER_KEY, id)
+    } catch {
+      /* ignore */
+    }
   },
-
-  advanceHours: async (gameId: string, hours: number): Promise<GameState> => {
-    const { data } = await API.post('/game/advance-hours', { game_id: gameId, hours });
-    return data;
+  set gameId(id: string | null) {
+    try {
+      if (id) localStorage.setItem(GAME_KEY, id)
+      else localStorage.removeItem(GAME_KEY)
+    } catch {
+      /* storage unavailable: session-only play */
+    }
   },
+}
 
-  advanceToClose: async (gameId: string): Promise<GameState> => {
-    const { data } = await API.post('/game/advance-to-close', { game_id: gameId, hours: 1 });
-    return data;
-  },
+async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const gid = session.gameId
+  if (gid) headers['X-Game-Id'] = gid
+  const res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  if (!res.ok) {
+    let code = 'ERROR'
+    let message = `Request failed (${res.status})`
+    try {
+      const j = await res.json()
+      if (j?.detail?.code) {
+        code = j.detail.code
+        message = j.detail.message
+      } else if (Array.isArray(j?.detail)) {
+        code = 'VALIDATION'
+        message = j.detail.map((d: { msg: string }) => d.msg).join('; ')
+      }
+    } catch {
+      /* non-JSON error */
+    }
+    throw new ApiError(res.status, code, message)
+  }
+  return res.json() as Promise<T>
+}
 
-  advanceToNextDay: async (gameId: string): Promise<GameState> => {
-    const { data } = await API.post('/game/advance-next-business-day', { game_id: gameId, hours: 1 });
-    return data;
-  },
+type Act<R = unknown> = Promise<ActionResponse<R>>
 
-  skipWeekend: async (gameId: string): Promise<GameState> => {
-    const { data } = await API.post('/game/skip-weekend', { game_id: gameId, hours: 1 });
-    return data;
-  },
+export const api = {
+  newGame: (seed?: number, player_name?: string) =>
+    request<{ player_id: string; state: GameState }>('POST', '/game/new', { seed, player_name, player_id: session.playerId ?? undefined }),
+  restart: () => request<{ player_id: string; state: GameState }>('POST', '/game/restart'),
+  state: () => request<GameState>('GET', '/game/state'),
 
-  quarterlyReview: async (gameId: string): Promise<QuarterlyReview> => {
-    const { data } = await API.post('/game/quarterly-review', { game_id: gameId, hours: 1 });
-    return data;
-  },
+  advanceHour: (): Act => request('POST', '/game/advance-hour'),
+  advanceHours: (hours: number): Act => request('POST', '/game/advance-hours', { hours }),
+  advanceToClose: (): Act => request('POST', '/game/advance-to-close'),
+  nextBusinessDay: (): Act => request('POST', '/game/advance-next-business-day'),
+  skipWeekend: (): Act => request('POST', '/game/skip-weekend'),
+  nextWeek: (): Act => request('POST', '/game/advance-week'),
 
-  listGames: async (): Promise<Array<{ id: string; player_name: string; status: string; career_day: number; created_at: string }>> => {
-    const { data } = await API.get('/game/list');
-    return data;
-  },
+  ackPopup: (popup_id: string): Act => request('POST', '/game/popup/ack', { popup_id }),
+  markRead: (kind: 'messages' | 'notifications', ids?: string[]): Act => request('POST', '/game/read', { kind, ids }),
 
-  buy: async (gameId: string, symbol: string, quantity: number): Promise<TradeResult> => {
-    const { data } = await API.post('/trade/buy', { game_id: gameId, symbol, quantity });
-    return data;
-  },
+  save: (name: string) => request<SaveSlot>('POST', '/game/save', { name }),
+  saves: () => request<SaveSlot[]>('GET', '/game/saves'),
+  load: (save_id: number) => request<{ game_id: string; state: GameState }>('POST', '/game/load', { save_id }),
 
-  sell: async (gameId: string, symbol: string, quantity: number): Promise<TradeResult> => {
-    const { data } = await API.post('/trade/sell', { game_id: gameId, symbol, quantity });
-    return data;
-  },
+  symbol: (symbol: string, tf: '1h' | '1d' = '1h', limit = 240) =>
+    request<SymbolDetail>('GET', `/market/${symbol}?tf=${tf}&limit=${limit}`),
 
-  getCandles: async (gameId: string, symbol: string, days = 30): Promise<{ symbol: string; name: string; candles: CandleData[] }> => {
-    const { data } = await API.get(`/market/${gameId}/${symbol}/candles`, { params: { days } });
-    return data;
-  },
+  quote: (side: 'BUY' | 'SELL', symbol: string, quantity: number) =>
+    request<Quote>('POST', '/trade/quote', { side, symbol, quantity }),
+  buy: (symbol: string, quantity: number): Act<{ transaction: Transaction }> => request('POST', '/trade/buy', { symbol, quantity }),
+  sell: (symbol: string, quantity: number): Act<{ transaction: Transaction }> => request('POST', '/trade/sell', { symbol, quantity }),
 
-  getPerformance: async (gameId: string) => {
-    const { data } = await API.get(`/performance/${gameId}`);
-    return data;
-  },
-};
+  acceptDeal: (id: string, quantity?: number): Act => request('POST', `/opportunities/${id}/accept`, { quantity }),
+  declineDeal: (id: string): Act => request('POST', `/opportunities/${id}/decline`),
 
-export default gameApi;
+  research: (symbol: string, depth: 'QUICK' | 'DEEP'): Act<{ report: ResearchReport; hours_used: number }> => request('POST', `/research/${symbol}`, { depth }),
+  thesis: (symbol: string, stance: string, text: string): Act => request('POST', '/research/thesis', { symbol, stance, text }),
+
+  resolveRisk: (warning_id: string, action: string): Act => request('POST', '/risk/resolve', { warning_id, action }),
+  takeLeave: (days: number): Act => request('POST', '/leave/start', { days }),
+  hire: (candidate_id: string): Act => request('POST', '/team/hire', { candidate_id }),
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  get: <T = any>(path: string) => request<T>('GET', path),
+}

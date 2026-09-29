@@ -1,124 +1,63 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models.db_models import Game, Stock
-from app.schemas.game_schemas import StockCandlesResponse
-from app.services import game_service
-
+from app.api.deps import game_id_header
+from app.services import game_service as svc
+from app.services import indicators
+from app.services import repository as repo
+from app.services import serializers as ser
 
 router = APIRouter()
 
 
-@router.get("/{game_id}")
-def get_market(
-    game_id: str,
-    db: Session = Depends(get_db),
-):
-    # Read the authoritative market state from PostgreSQL.
-    game = (
-        db.query(Game)
-        .filter(Game.id == game_id)
-        .first()
-    )
-
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
-
-    stocks = (
-        db.query(Stock)
-        .filter(Stock.game_id == game_id)
-        .order_by(Stock.symbol)
-        .all()
-    )
-
-    return {
-        "game_id": str(game.id),
-        "regime": game.market_regime,
-        "stocks": [
-            {
-                "symbol": stock.symbol,
-                "name": stock.name,
-                "sector": stock.sector,
-                "current_price": float(stock.current_price),
-                "previous_price": float(stock.previous_price),
-                "daily_return": round(
-                    (
-                        stock.current_price / stock.daily_open - 1
-                    ) * 100,
-                    4,
-                )
-                if stock.daily_open
-                else 0.0,
-                "daily_high": float(stock.daily_high),
-                "daily_low": float(stock.daily_low),
-                "volume": int(stock.volume),
-                "volatility": float(stock.volatility),
-                "beta": float(stock.beta),
-                "sentiment": float(stock.sentiment),
-                "growth": float(stock.growth),
-                "profitability": float(stock.profitability),
-                "debt": float(stock.debt),
-                "valuation": float(stock.valuation),
-            }
-            for stock in stocks
-        ],
-    }
+@router.get("")
+def market(game_id: str = Depends(game_id_header)):
+    def build(state):
+        return {"clock": ser.clock(state), "stocks": [ser.stock_row(state, s) for s in state.stocks.values()],
+                "indices": ser.full_state(state, include_paths=False)["indices"]}
+    return svc.read(game_id, build)
 
 
-@router.get(
-    "/{game_id}/{symbol}/candles",
-    response_model=StockCandlesResponse,
-)
-def get_candles(
-    game_id: str,
-    symbol: str,
-    days: int = Query(
-        default=30,
-        ge=1,
-        le=90,
-    ),
-    db: Session = Depends(get_db),
-):
-    game = (
-        db.query(Game)
-        .filter(Game.id == game_id)
-        .first()
-    )
+@router.get("/calendar")
+def calendar(game_id: str = Depends(game_id_header)):
+    return svc.read(game_id, lambda s: ser.calendar(s, limit=40))
 
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
 
-    stock = (
-        db.query(Stock)
-        .filter(
-            Stock.game_id == game_id,
-            Stock.symbol == symbol.upper(),
-        )
-        .first()
-    )
+@router.get("/{symbol}")
+def stock_detail(symbol: str, tf: Literal["1h", "1d"] = Query("1h"), limit: int = Query(240, ge=20, le=2000),
+                 game_id: str = Depends(game_id_header)):
+    symbol = symbol.upper()
 
-    if stock is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Stock '{symbol.upper()}' not found.",
-        )
+    def build(state):
+        is_index = symbol in state.indices
+        if symbol not in state.stocks and not is_index:
+            raise HTTPException(status_code=404, detail={"code": "INVALID_SYMBOL", "message": f"Unknown symbol {symbol}"})
+        with svc.session() as db:
+            rows = [{"t": r.t.isoformat(), "o": r.o, "h": r.h, "l": r.l, "c": r.c, "v": r.v}
+                    for r in repo.candles(db, game_id, symbol, limit=4000 if tf == "1d" else limit + 60)]
+        if tf == "1d":
+            rows = indicators.aggregate_daily(rows)
+        ind = indicators.compute(rows)
+        rows, ind = rows[-limit:], {k: v[-limit:] for k, v in ind.items()}
+        out = {"symbol": symbol, "tf": tf, "candles": rows, "indicators": ind}
+        if is_index:
+            i = state.indices[symbol]
+            out["index"] = {"key": i.key, "name": i.name, "value": i.value,
+                            "change_pct": i.value / i.prev_close - 1 if i.prev_close else 0}
+            return out
+        s = state.stocks[symbol]
+        out["stock"] = ser.stock_row(state, s)
+        out["fundamentals"] = ser.fundamentals(s)
+        out["news"] = [n.model_dump(mode="json") for n in reversed(state.news) if symbol in n.symbols][:15]
+        out["events"] = [{"id": e.id, "type": e.type, "title": e.title, "severity": e.severity,
+                          "started_at": e.started_at.isoformat(), "active": e.active}
+                         for e in reversed(state.events) if symbol in e.affected_symbols and e.category == "company"][:10]
+        out["calendar"] = [c for c in ser.calendar(state, limit=40) if c.get("symbol") == symbol]
+        out["research"] = [r.model_dump(mode="json") for r in reversed(state.research) if r.symbol == symbol][:3]
+        out["theses"] = [t.model_dump(mode="json") for t in reversed(state.theses) if t.symbol == symbol][:5]
+        h = state.portfolio.holdings.get(symbol)
+        out["position"] = next((x for x in ser.holdings(state) if x["symbol"] == symbol), None) if h else None
+        return out
 
-    try:
-        return game_service.get_stock_candles(
-            game_id,
-            stock.symbol,
-            days,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=str(exc),
-        ) from exc
+    return svc.read(game_id, build)

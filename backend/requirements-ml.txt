@@ -1,0 +1,3 @@
+# Optional extras for offline model work (the game never needs these at runtime)
+xgboost>=2.0
+shap>=0.45

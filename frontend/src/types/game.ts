@@ -1,197 +1,426 @@
-/* All game types mirroring backend Pydantic schemas */
+// Mirrors backend/app/services/serializers.py. The backend is authoritative;
+// these are read-only views.
 
-export interface TimeInfo {
-  game_date: string;
-  game_hour: number;
-  day_of_week: string;
-  career_day: number;
-  quarter: number;
-  career_year: number;
-  market_status: 'PRE_MARKET' | 'OPEN' | 'CLOSED' | 'WEEKEND';
-  working_hours_left: number;
+export type MarketStatus = 'OPEN' | 'CLOSED' | 'WEEKEND' | 'PRE_MARKET'
+
+export interface Clock {
+  game_date: string
+  game_hour: number
+  game_minute: number
+  day_of_week: string
+  market_status: MarketStatus
+  career_day: number
+  quarter_day: number
+  quarter_days: number
+  quarter: number
+  career_year: number
+  working_day: boolean
+  is_on_leave: boolean
+  hours_to_close: number
+  iso: string
+  label: string
+  time: string
 }
 
-export interface FinancialsInfo {
-  cash: number;
-  cash_cr: number;
-  invested_value: number;
-  invested_value_cr: number;
-  total_value: number;
-  total_value_cr: number;
-  starting_capital: number;
-  starting_capital_cr: number;
-  quarterly_target: number;
-  quarterly_target_cr: number;
-  total_pnl: number;
-  total_pnl_cr: number;
-  total_return_pct: number;
-  realized_pnl: number;
-  unrealized_pnl: number;
-  daily_pnl: number;
-  daily_pnl_cr: number;
-  max_drawdown: number;
-  target_progress: number;
-  to_target: number;
-  to_target_cr: number;
-  target_met: boolean;
-  portfolio_volatility: number;
+export interface CareerSummary {
+  firm: string
+  level: number
+  title: string
+  xp: number
+  xp_level_start: number
+  xp_next: number
+  reputation: number
+  status: 'ACTIVE' | 'REVIEW' | 'TERMINATED'
+  warning_level: number
+  risk_profile: string
+  quarter_index: number
+  quarter_start: string
+  quarter_end: string
+  target_value: number
+  target_return: number
+  max_drawdown_limit: number
+  risk_violations: number
+  ignored_violations: number
+  exceptions_granted: number
+  compliance_strikes: number
+  time_progress: number
+  unlocks: string[]
+  next_title: string | null
+  delegate: string | null
 }
 
-export interface CareerInfo {
-  level: number;
-  role: string;
-  xp: number;
-  xp_to_next_level: number;
-  reputation: number;
-  leave_balance: number;
-  leave_used: number;
-  on_leave: boolean;
+export interface PortfolioSummary {
+  starting_capital: number
+  cash: number
+  invested: number
+  value: number
+  pnl: number
+  return_pct: number
+  day_pnl: number
+  day_pnl_pct: number
+  realized_pnl: number
+  unrealized_pnl: number
+  fees_paid: number
+  max_drawdown: number
+  drawdown: number
+  peak_value: number
+  target_value: number
+  target_progress: number
+  volatility: number
+  beta: number
 }
 
-export interface IndexInfo {
-  symbol: string;
-  name: string;
-  value: number;
-  prev_value: number;
-  change_pct: number;
+export interface HoldingRow {
+  symbol: string
+  name: string
+  sector: string
+  qty: number
+  avg_cost: number
+  price: number
+  value: number
+  weight: number
+  pnl: number
+  pnl_pct: number
+  day_change_pct: number
+  day_pnl: number
+  opened_at: string
 }
 
-export interface StockInfo {
-  symbol: string;
-  name: string;
-  sector: string;
-  current_price: number;
-  previous_price: number;
-  daily_open: number;
-  daily_high: number;
-  daily_low: number;
-  daily_return: number;
-  volume: number;
-  volatility: number;
-  beta: number;
-  sentiment: number;
-  momentum: number;
-  growth: number;
-  profitability: number;
-  debt: number;
-  valuation: number;
+export interface IndexRow {
+  key: string
+  name: string
+  kind: string
+  value: number
+  prev_close: number
+  change_pct: number
+  spark: number[]
 }
 
-export interface MarketInfo {
-  regime: 'BULL' | 'STABLE' | 'VOLATILE' | 'BEAR' | 'CRISIS';
-  indices: IndexInfo[];
-  stocks: StockInfo[];
+export interface StockRow {
+  symbol: string
+  name: string
+  sector: string
+  price: number
+  prev_close: number
+  change: number
+  change_pct: number
+  week_change_pct: number
+  day_high: number
+  day_low: number
+  open: number
+  volume: number
+  prev_volume: number
+  volatility: number
+  beta: number
+  momentum: number
+  pe: number | null
+  valuation: number
+  sentiment: number
+  sentiment_label: string
+  risk: number
+  market_cap_cr: number
+  spark: number[]
+  held: boolean
 }
 
-export interface HoldingInfo {
-  symbol: string;
-  name: string;
-  sector: string;
-  quantity: number;
-  avg_buy_price: number;
-  current_price: number;
-  current_value: number;
-  current_value_cr: number;
-  cost_basis: number;
-  unrealized_pnl: number;
-  unrealized_pnl_pct: number;
-  daily_return: number;
+export interface NewsItem {
+  id: string
+  time: string
+  headline: string
+  body: string
+  category: 'COMPANY' | 'MACRO' | 'MARKET' | 'FIRM'
+  tone: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
+  severity: number
+  symbols: string[]
+  sectors?: string[]
+  event_id?: string | null
 }
 
-export interface RiskWarningInfo {
-  code: string;
-  level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  message: string;
-  value: number;
-  limit: number;
-  symbol?: string;
-  sector?: string;
+export interface Message {
+  id: string
+  time: string
+  sender: string
+  subject: string
+  lines: string[]
+  priority: 'NORMAL' | 'HIGH' | 'CRITICAL'
+  read: boolean
 }
 
-export interface RiskInfo {
-  overall_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  risk_score: number;
-  warnings: RiskWarningInfo[];
-  drawdown_pct: number;
-  cash_ratio: number;
-  largest_position_pct: number;
-  sector_concentration: Record<string, number>;
-  portfolio_volatility: number;
+export interface Notification {
+  id: string
+  time: string
+  kind: string
+  title: string
+  body: string
+  read: boolean
 }
 
-export interface NewsItemInfo {
-  id: string;
-  category: 'COMPANY' | 'MACRO' | 'MARKET' | 'CEO';
-  priority: 'BREAKING' | 'HIGH' | 'NORMAL' | 'LOW';
-  headline: string;
-  body?: string;
-  affected_symbol?: string;
-  affected_sector?: string;
-  market_impact: number;
-  career_day: number;
-  game_hour: number;
-  is_read: boolean;
+export type PopupType =
+  | 'DAILY_REPORT'
+  | 'WEEKEND_REPORT'
+  | 'LEAVE_REPORT'
+  | 'RISK_WARNING'
+  | 'DIALOGUE'
+  | 'REVIEW'
+
+export interface Popup {
+  id: string
+  type: PopupType
+  created: string
+  blocking: boolean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload: any
 }
 
-export interface NotificationInfo {
-  id: string;
-  level: 'INFO' | 'WARNING' | 'CRITICAL';
-  message: string;
-  category: string;
+export interface Opportunity {
+  id: string
+  kind: string
+  symbol: string
+  name: string
+  qty: number
+  price: number
+  market_price: number
+  discount: number
+  effective_discount: number
+  value: number
+  created: string
+  expires_at: string
+  status: 'OPEN' | 'ACCEPTED' | 'EXPIRED' | 'DECLINED'
+  seller: string
+  minutes_left: number
+}
+
+export interface RiskWarning {
+  id: string
+  rule: string
+  subject: string
+  value: number
+  limit: number
+  created: string
+  status: string
+  during_leave: boolean
+}
+
+export interface Breach {
+  rule: string
+  subject: string
+  value: number
+  limit: number
+  excepted: boolean
+}
+
+export interface RiskSummary {
+  score: number
+  level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  nav: number
+  cash_ratio: number
+  invested_ratio: number
+  drawdown: number
+  max_drawdown: number
+  volatility: number
+  beta: number
+  var_95: number
+  largest_position: { symbol: string | null; weight: number }
+  stock_weights: Record<string, number>
+  sector_weights: Record<string, number>
+  limits: { max_single_stock: number; max_sector: number; max_drawdown: number; min_cash: number }
+  breaches: Breach[]
+  near_limits: Breach[]
+  warnings: RiskWarning[]
+  exceptions: { rule: string; subject: string; until: string }[]
+}
+
+export interface CalendarItem {
+  id: string
+  time: string
+  kind: 'EARNINGS' | 'ECON_DATA' | 'POLICY' | 'CEO_MEETING'
+  title: string
+  symbol: string | null
+  consensus?: number
+  desk_forecast?: number
+}
+
+export interface LeaveInfo {
+  allowance: number
+  used: number
+  remaining: number
+  is_on_leave: boolean
+  year: number
+  records: { start: string; end: string; business_days: number }[]
+}
+
+export interface NavPoint {
+  t: string
+  nav: number
+  bench: number
+}
+
+export interface TeamBrief {
+  id: string
+  name: string
+  role: string
+  avatar: string
+  trust: number
+  stress: number
+}
+
+export interface ResearchReport {
+  id: string
+  symbol: string
+  time: string
+  depth: 'QUICK' | 'DEEP'
+  analyst: string
+  est_fair_value: number
+  price_at: number
+  rating: 'BUY' | 'HOLD' | 'SELL'
+  confidence: number
+  earnings_view: string | null
+  red_flags: string[]
+  notes: string[]
+}
+
+export interface Thesis {
+  id: string
+  symbol: string
+  stance: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+  text: string
+  time: string
+  price_at: number
+}
+
+export interface Transaction {
+  id: string
+  time: string
+  side: 'BUY' | 'SELL'
+  symbol: string
+  qty: number
+  price: number
+  fee: number
+  value: number
+  realized_pnl: number
+  source: string
+}
+
+export interface LastTick {
+  t: string | null
+  paths: Record<string, number[]>
 }
 
 export interface GameState {
-  game_id: string;
-  player_name: string;
-  status: 'ACTIVE' | 'COMPLETED' | 'FAILED';
-  time: TimeInfo;
-  financials: FinancialsInfo;
-  career: CareerInfo;
-  market: MarketInfo;
-  holdings: HoldingInfo[];
-  risk: RiskInfo;
-  recent_news: NewsItemInfo[];
-  notifications: NotificationInfo[];
-  trade_count_today: number;
+  game_id: string
+  seed: number
+  version: number
+  clock: Clock
+  career: CareerSummary
+  portfolio: PortfolioSummary
+  holdings: HoldingRow[]
+  indices: IndexRow[]
+  stocks: StockRow[]
+  news: NewsItem[]
+  messages: Message[]
+  notifications: Notification[]
+  popups: Popup[]
+  opportunities: Opportunity[]
+  risk: RiskSummary
+  calendar: CalendarItem[]
+  leave: LeaveInfo
+  nav_series: NavPoint[]
+  team: TeamBrief[]
+  research: ResearchReport[]
+  theses: Thesis[]
+  transactions: Transaction[]
+  stats: { hours_worked: number; hours_skipped: number; trades: number; research_count: number }
+  last_tick: LastTick | null
 }
 
-export interface TradeResult {
-  success: boolean;
-  message: string;
-  symbol: string;
-  action: string;
-  quantity: number;
-  price: number;
-  total_value: number;
-  fee: number;
-  cash_after: number;
-  cash_after_cr: number;
-  realized_pnl?: number;
+export interface Candle {
+  t: string
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number
 }
 
-export interface CandleData {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+export interface Indicators {
+  sma20: (number | null)[]
+  sma50: (number | null)[]
+  ema20: (number | null)[]
+  bb_upper: (number | null)[]
+  bb_lower: (number | null)[]
+  rsi14: (number | null)[]
+  macd: (number | null)[]
+  macd_signal: (number | null)[]
+  macd_hist: (number | null)[]
+  atr14: (number | null)[]
 }
 
-export interface QuarterlyReview {
-  outcome: 'PROMOTED' | 'TARGET_ACHIEVED' | 'WARNING' | 'FAILED' | 'TERMINATED';
-  final_return: number;
-  target_return: number;
-  max_drawdown: number;
-  reputation: number;
-  xp: number;
-  summary: string;
-  ceo_message: string;
-  xp_awarded: number;
-  reputation_change: number;
+export interface Fundamentals {
+  growth: number
+  profitability: number
+  debt: number
+  valuation: number
+  pe: number | null
+  eps: number
+  beta: number
+  base_volatility: number
+  event_sensitivity: number
+  about: string
+  market_cap_cr: number
+  institutional_flow: 'BUYING' | 'SELLING' | 'NEUTRAL'
 }
 
-export type ActiveScreen =
+export interface SymbolDetail {
+  symbol: string
+  tf: '1h' | '1d'
+  candles: Candle[]
+  indicators: Indicators
+  stock?: StockRow
+  index?: { key: string; name: string; value: number; change_pct: number }
+  fundamentals?: Fundamentals
+  news?: NewsItem[]
+  events?: { id: string; type: string; title: string; severity: number; started_at: string; active: boolean }[]
+  calendar?: CalendarItem[]
+  research?: ResearchReport[]
+  theses?: Thesis[]
+  position?: HoldingRow | null
+}
+
+export interface Quote {
+  side: 'BUY' | 'SELL'
+  symbol: string
+  name: string
+  qty: number
+  market_price: number
+  exec_price: number
+  impact_pct: number
+  value: number
+  fee: number
+  total: number
+  cash_before: number
+  cash_after: number
+  position_after: number
+  weight_after: number
+  realized_pnl: number
+  warnings: string[]
+  sector_after?: number
+}
+
+export interface ActionResponse<R = unknown> {
+  result: R
+  state: GameState
+}
+
+export interface SaveSlot {
+  id: number
+  game_id: string
+  name: string
+  game_time: string
+  created_at: string
+  summary: { nav: number; level: number; title: string; reputation: number; date: string; quarter: number }
+}
+
+export type Page =
   | 'dashboard'
   | 'markets'
   | 'portfolio'
@@ -200,4 +429,5 @@ export type ActiveScreen =
   | 'news'
   | 'team'
   | 'career'
-  | 'performance';
+  | 'performance'
+  | 'stock'

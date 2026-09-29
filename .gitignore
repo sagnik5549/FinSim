@@ -76,3 +76,8 @@ docker-compose.override.yml
 *.pem
 *.key
 *.crt
+# =========================
+# Investment Banker Mode
+# =========================
+backend/data/
+backend/app/ml/training/data/

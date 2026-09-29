@@ -1,258 +1,78 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.database import get_db
-from app.models.db_models import Game
-from app.schemas.game_schemas import (
-    AdvanceHoursRequest,
-    GameStateResponse,
-    LeaveRequest,
-    NewGameRequest,
-    NewGameResponse,
-    QuarterlyReviewResponse,
-)
-from app.services import game_service
-
+from app.api.deps import game_id_header
+from app.schemas.requests import AckRequest, AdvanceHoursRequest, LoadRequest, NewGameRequest, ReadRequest, SaveRequest
+from app.services import game_service as svc
+from app.services import serializers as ser
 
 router = APIRouter()
 
 
-@router.post("/new", response_model=NewGameResponse)
-def new_game(
-    req: NewGameRequest,
-    db: Session = Depends(get_db),
-):
-    player_name = req.player_name.strip() or "Player"
-
-    game_id = game_service.create_new_game(
-        player_name,
-        db,
-    )
-
-    return NewGameResponse(
-        game_id=game_id,
-        message="New career started. Welcome to Apex Capital.",
-    )
+@router.post("/new")
+def new_game(req: NewGameRequest):
+    return svc.new_game(req.player_name, req.seed, req.player_id)
 
 
-@router.get(
-    "/state/{game_id}",
-    response_model=GameStateResponse,
-)
-def get_state(
-    game_id: str,
-    db: Session = Depends(get_db),
-):
-    game = (
-        db.query(Game)
-        .filter(Game.id == game_id)
-        .first()
-    )
-
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
-
-    try:
-        return game_service.build_state_response(
-            game,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.get("/state")
+def get_state(game_id: str = Depends(game_id_header)):
+    return svc.read(game_id, ser.full_state)
 
 
-@router.post(
-    "/advance-hour",
-    response_model=GameStateResponse,
-)
-def advance_hour(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    try:
-        return game_service.advance_game_time(
-            req.game_id,
-            1,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/advance-hour")
+def advance_hour(game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("hour"))
 
 
-@router.post(
-    "/advance-hours",
-    response_model=GameStateResponse,
-)
-def advance_hours(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    if req.hours <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Hours must be greater than zero.",
-        )
-
-    try:
-        return game_service.advance_game_time(
-            req.game_id,
-            req.hours,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/advance-hours")
+def advance_hours(req: AdvanceHoursRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("hours", req.hours))
 
 
-@router.post(
-    "/advance-to-close",
-    response_model=GameStateResponse,
-)
-def advance_to_close(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    game = (
-        db.query(Game)
-        .filter(Game.id == req.game_id)
-        .first()
-    )
-
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
-
-    try:
-        return game_service.advance_to_market_close(
-            req.game_id,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/advance-to-close")
+def advance_to_close(game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("close"))
 
 
-@router.post(
-    "/advance-next-business-day",
-    response_model=GameStateResponse,
-)
-def advance_next_business_day(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    game = (
-        db.query(Game)
-        .filter(Game.id == req.game_id)
-        .first()
-    )
-
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
-
-    try:
-        return game_service.advance_to_next_business_day(
-            req.game_id,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/advance-next-business-day")
+def advance_next_business_day(game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("next_day"))
 
 
-@router.post(
-    "/skip-weekend",
-    response_model=GameStateResponse,
-)
-def skip_weekend(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    game = (
-        db.query(Game)
-        .filter(Game.id == req.game_id)
-        .first()
-    )
-
-    if game is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Game not found.",
-        )
-
-    try:
-        return game_service.skip_weekend(
-            req.game_id,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/skip-weekend")
+def skip_weekend(game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("weekend"))
 
 
-@router.post(
-    "/quarterly-review",
-    response_model=QuarterlyReviewResponse,
-)
-def quarterly_review(
-    req: AdvanceHoursRequest,
-    db: Session = Depends(get_db),
-):
-    try:
-        return game_service.do_quarterly_review(
-            req.game_id,
-            db,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
+@router.post("/advance-week")
+def advance_week(game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.advance("week"))
 
 
-@router.get("/list")
-def list_games(
-    db: Session = Depends(get_db),
-):
-    games = (
-        db.query(Game)
-        .order_by(Game.created_at.desc())
-        .limit(10)
-        .all()
-    )
+@router.post("/popup/ack")
+def ack_popup(req: AckRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.ack_popup(req.popup_id))
 
-    return [
-        {
-            "id": str(game.id),
-            "player_name": game.player_name,
-            "status": game.status,
-            "career_day": game.career_day,
-            "created_at": (
-                game.created_at.isoformat()
-                if game.created_at
-                else None
-            ),
-        }
-        for game in games
-    ]
+
+@router.post("/read")
+def mark_read(req: ReadRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.mark_read(req.kind, req.ids))
+
+
+@router.post("/save")
+def save_game(req: SaveRequest, game_id: str = Depends(game_id_header)):
+    return svc.save_slot(game_id, req.name)
+
+
+@router.get("/saves")
+def list_saves(game_id: str = Depends(game_id_header)):
+    return svc.list_saves(svc.player_of(game_id))
+
+
+@router.post("/load")
+def load_game(req: LoadRequest, game_id: str = Depends(game_id_header)):
+    return svc.load_slot(req.save_id, svc.player_of(game_id))
+
+
+@router.post("/restart")
+def restart(game_id: str = Depends(game_id_header)):
+    return svc.new_game(player_id=svc.player_of(game_id))

@@ -1,13 +1,17 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://finsim:finsim_secret@localhost:5432/finsim"
-    SECRET_KEY: str = "finsim-secret-key-change-in-production"
-    DEBUG: bool = True
+    # PostgreSQL in Docker (see docker-compose.yml); SQLite for zero-setup local runs.
+    DATABASE_URL: str = f"sqlite:///{(BACKEND_DIR / 'data' / 'ibmode.db').as_posix()}"
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    DEBUG: bool = False
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
