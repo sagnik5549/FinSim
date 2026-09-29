@@ -5,8 +5,7 @@ services:
       POSTGRES_USER: ibmode
       POSTGRES_PASSWORD: ibmode
       POSTGRES_DB: ibmode
-    ports:
-      - "5432:5432"
+    # Not published to the host (avoids clashing with a local Postgres); the backend uses the internal network.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

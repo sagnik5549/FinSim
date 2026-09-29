@@ -37,8 +37,13 @@ The Vite dev server proxies `/api` to `http://127.0.0.1:8000` (override with `AP
 ## Quick start (Docker, PostgreSQL)
 
 ```bash
-docker compose up --build         # frontend :5173 · API :8000 · Postgres :5432
+docker compose up --build -d      # frontend http://localhost:5173 · API :8000
+docker compose logs -f backend    # follow server logs
+docker compose down               # stop (add -v to also wipe the Postgres volume)
 ```
+
+PostgreSQL runs inside the stack and is not published to the host, so it won't clash with a local Postgres
+on 5432. The first page load is slower while Vite pre-bundles dependencies.
 
 Set `DATABASE_URL` to use any other PostgreSQL instance
 (e.g. `postgresql+psycopg2://user:pass@host:5432/db`).
