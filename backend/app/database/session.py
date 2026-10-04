@@ -2,6 +2,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
 
@@ -26,6 +27,9 @@ def _make_engine(url: str):
             cur.close()
 
         return eng
+    if settings.SERVERLESS:
+        # One short-lived instance per request burst: don't hold idle connections open.
+        return create_engine(url, pool_pre_ping=True, poolclass=NullPool)
     return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20)
 
 

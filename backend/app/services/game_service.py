@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator, Optional
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.database import models as m
 from app.database.session import SessionLocal
 from app.services import repository as repo
@@ -38,7 +39,16 @@ def _lock(game_id: str) -> threading.Lock:
         return _locks.setdefault(game_id, threading.Lock())
 
 
-def _get(db, game_id: str) -> tuple[GameState, str]:
+def _get(db, game_id: str, for_update: bool = False) -> tuple[GameState, str]:
+    if settings.SERVERLESS:
+        # Another instance may have advanced this game: always read the database, and lock
+        # the row for mutating actions so two instances can't interleave (no-op on SQLite).
+        if for_update:
+            db.execute(select(m.Game.id).where(m.Game.id == game_id).with_for_update())
+        loaded = repo.load(db, game_id)
+        if loaded is None:
+            raise NotFound(game_id)
+        return loaded
     if game_id in _cache:
         return _cache[game_id]
     loaded = repo.load(db, game_id)
@@ -81,7 +91,7 @@ def read(game_id: str, fn: Callable[[GameState], Any]) -> Any:
 def act(game_id: str, fn: Callable[[GameEngine], Any]) -> dict:
     """Run a mutating action atomically: on any error the cached state is discarded."""
     with session() as db, _lock(game_id):
-        state, player_id = _get(db, game_id)
+        state, player_id = _get(db, game_id, for_update=True)
         eng = GameEngine(state)
         try:
             result = fn(eng)
@@ -98,8 +108,8 @@ def act(game_id: str, fn: Callable[[GameEngine], Any]) -> dict:
 
 def save_slot(game_id: str, name: str) -> dict:
     with session() as db, _lock(game_id):
-        state, player_id = _get(db, game_id)
-        summary = {"nav": pe.nav(state), "level": state.career.level, "title": state.career.title,
+        state, player_id = _get(db, game_id, for_update=True)
+        summary ={"nav": pe.nav(state), "level": state.career.level, "title": state.career.title,
                    "reputation": state.career.reputation, "date": state.now.strftime("%a %d %b %Y %H:%M"),
                    "quarter": state.career.quarter_index}
         repo.save(db, state, player_id)  # flush pending history first

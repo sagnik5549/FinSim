@@ -1,0 +1,8 @@
+# Runtime dependencies for the Vercel serverless function (api/index.py).
+# Local development uses backend/requirements.txt, which adds the ML and test tooling.
+fastapi>=0.111
+sqlalchemy>=2.0.30
+psycopg2-binary>=2.9.9
+pydantic>=2.7
+pydantic-settings>=2.2
+numpy>=1.26

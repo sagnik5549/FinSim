@@ -48,6 +48,21 @@ on 5432. The first page load is slower while Vite pre-bundles dependencies.
 Set `DATABASE_URL` to use any other PostgreSQL instance
 (e.g. `postgresql+psycopg2://user:pass@host:5432/db`).
 
+## Deploy (Vercel + Postgres)
+
+The frontend is served as static files and the backend runs as one Python serverless function
+(`api/index.py`, configured in `vercel.json`, dependencies in the root `requirements.txt`).
+
+1. On vercel.com: **Add New → Project**, import this GitHub repo, keep the defaults and deploy.
+   The first deploy fails with `DATABASE_URL is not set`; that's expected.
+2. In the project: **Storage → Create Database → Neon (Postgres)** and connect it to all
+   environments. This sets `DATABASE_URL`.
+3. **Deployments → ⋯ → Redeploy**. Tables are created on the first request.
+
+On Vercel the server sets `SERVERLESS=1`: the in-memory game cache is off and each action locks
+its game row in Postgres, because requests can land on different instances. The ML behaviour model is
+left out to fit Vercel's function size limit; the game uses its rule-based fallback.
+
 ---
 
 ## How to play
