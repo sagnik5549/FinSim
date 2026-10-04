@@ -1,5 +1,12 @@
 # Investment Banker Mode
 
+[![Live demo](https://img.shields.io/badge/play-live%20demo-2fcf7a?style=flat-square&logo=vercel&logoColor=white)](https://fin-sim-investments.vercel.app)
+[![Release](https://img.shields.io/github/v/release/sagnik5549/FinSim?style=flat-square&color=e9b949)](https://github.com/sagnik5549/FinSim/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/sagnik5549/FinSim?style=flat-square&color=5b8cff)](LICENSE)
+![Python](https://img.shields.io/badge/Python-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-TypeScript-3178c6?style=flat-square&logo=react&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169e1?style=flat-square&logo=postgresql&logoColor=white)
+
 > **Your decisions move the money. The market decides your fate.**
 
 A financial career-management game. You join **Apex Capital** as Head of Investments with **₹100 Cr**, a
@@ -213,3 +220,7 @@ The active game is selected with the `X-Game-Id` header.
 3. Train the behaviour and difficulty models on real player telemetry; A/B test the director against rules only.
 4. Bonds and hedging (index futures) as Level 3 instruments.
 5. Accounts, a server-side live clock (WebSocket push) and leaderboards.
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Sagnik. See [CHANGELOG.md](CHANGELOG.md) for release history.

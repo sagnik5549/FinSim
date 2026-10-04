@@ -26,7 +26,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Investment Banker Mode API",
     description="Simulation backend for a financial career-management game. All market data is simulated.",
-    version="2.0.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 app.add_middleware(
