@@ -6,7 +6,24 @@ from pydantic import BaseModel, Field, StrictInt
 class NewGameRequest(BaseModel):
     player_name: str = Field(default="Player", max_length=80)
     seed: Optional[int] = Field(default=None, ge=0, le=2**31 - 1)
-    player_id: Optional[str] = None
+
+
+class SignupRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(default="", max_length=80)
+    # Guest player in this browser; its games and saves move to the new account.
+    guest_player_id: Optional[str] = Field(default=None, max_length=40)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(min_length=20, max_length=8192)
+    guest_player_id: Optional[str] = Field(default=None, max_length=40)
 
 
 class AdvanceHoursRequest(BaseModel):

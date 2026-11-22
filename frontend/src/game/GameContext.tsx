@@ -216,7 +216,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
       try {
         const res = await api.newGame(seed, name)
         session.gameId = res.state.game_id
-        session.playerId = res.player_id
         lastTickRef.current = res.state.last_tick?.t ?? null
         setState(res.state)
         setPage('dashboard')

@@ -10,9 +10,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import game, market, routes
+from app.api import auth, game, market, routes
 from app.config import settings
 from app.database.session import init_db
+from app.services.auth import AuthError
 from app.services.game_service import NotFound
 from app.simulation.game_engine import ActionError
 
@@ -43,11 +44,17 @@ async def action_error(_: Request, exc: ActionError):
     return JSONResponse(status_code=exc.status, content={"detail": {"code": exc.code, "message": exc.message}})
 
 
+@app.exception_handler(AuthError)
+async def auth_error(_: Request, exc: AuthError):
+    return JSONResponse(status_code=exc.status, content={"detail": {"code": exc.code, "message": exc.message}})
+
+
 @app.exception_handler(NotFound)
 async def not_found(_: Request, exc: NotFound):
     return JSONResponse(status_code=404, content={"detail": {"code": "NO_GAME", "message": "Game not found. Start a new career."}})
 
 
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(game.router, prefix="/api/game", tags=["Game"])
 app.include_router(market.router, prefix="/api/market", tags=["Market"])
 app.include_router(routes.portfolio, prefix="/api/portfolio", tags=["Portfolio"])

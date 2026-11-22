@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import game_id_header
+from app.api.deps import current_player, game_id_header
 from app.schemas.requests import AckRequest, AdvanceHoursRequest, LoadRequest, NewGameRequest, ReadRequest, SaveRequest
 from app.services import game_service as svc
 from app.services import serializers as ser
@@ -9,8 +9,8 @@ router = APIRouter()
 
 
 @router.post("/new")
-def new_game(req: NewGameRequest):
-    return svc.new_game(req.player_name, req.seed, req.player_id)
+def new_game(req: NewGameRequest, player_id: str = Depends(current_player)):
+    return svc.new_game(req.player_name, req.seed, player_id)
 
 
 @router.get("/state")
@@ -64,15 +64,15 @@ def save_game(req: SaveRequest, game_id: str = Depends(game_id_header)):
 
 
 @router.get("/saves")
-def list_saves(game_id: str = Depends(game_id_header)):
-    return svc.list_saves(svc.player_of(game_id))
+def list_saves(player_id: str = Depends(current_player)):
+    return svc.list_saves(player_id)
 
 
 @router.post("/load")
-def load_game(req: LoadRequest, game_id: str = Depends(game_id_header)):
-    return svc.load_slot(req.save_id, svc.player_of(game_id))
+def load_game(req: LoadRequest, player_id: str = Depends(current_player)):
+    return svc.load_slot(req.save_id, player_id)
 
 
 @router.post("/restart")
-def restart(game_id: str = Depends(game_id_header)):
-    return svc.new_game(player_id=svc.player_of(game_id))
+def restart(player_id: str = Depends(current_player)):
+    return svc.new_game(player_id=player_id)

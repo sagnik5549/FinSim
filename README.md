@@ -16,7 +16,8 @@ promoted, warned or fired.
 
 ### ▶ [Play it in your browser: fin-sim-investments.vercel.app](https://fin-sim-investments.vercel.app)
 
-No install or sign-up is needed. Your career saves automatically in the browser you play in.
+Sign in with Google or with an email and password. Your career saves automatically to your account, so you
+can pick it up again on any device.
 
 📘 **New to the game?** Read the illustrated field manual: [docs/IB-Mode-How-To-Play.pdf](docs/IB-Mode-How-To-Play.pdf).
 It covers the terminal, time, trading, research, risk, block deals, the team, the quarterly review and a
@@ -41,7 +42,8 @@ first-week playbook.
 | Database | **PostgreSQL** (Neon), **SQLAlchemy 2** | Game snapshots, price history, news, saves, telemetry |
 | ML | **scikit-learn**, joblib (XGBoost/SHAP optional) | Player-behaviour classifier, trained offline on bot play |
 | Hosting | **Vercel** | Static frontend + one Python serverless function |
-| Testing | **pytest**, **Vitest**, Testing Library | 40 backend and 10 frontend tests |
+| Auth | stdlib scrypt + HMAC-signed tokens, Google Identity Services | Email/password and Google sign-in |
+| Testing | **pytest**, **Vitest**, Testing Library | 50 backend and 10 frontend tests |
 
 ---
 
@@ -49,7 +51,7 @@ first-week playbook.
 
 ```mermaid
 flowchart LR
-    B[Browser<br/>React terminal] -- "intents: buy, research, advance 2h…<br/>X-Game-Id header" --> F
+    B[Browser<br/>React terminal] -- "intents: buy, research, advance 2h…<br/>bearer token + X-Game-Id" --> F
     subgraph Vercel
       S[Static site<br/>frontend/dist]
       F[Python function<br/>api/index.py → FastAPI]
@@ -65,7 +67,8 @@ It sends an *intent* (buy 4,000 AKSH, run a deep dive, skip 2 hours) and renders
 
 **One request, start to finish:**
 
-1. The browser sends the request with its game id in the `X-Game-Id` header.
+1. The browser sends the request with its session token and its game id in the `X-Game-Id` header. The
+   server checks that the game belongs to the signed-in player.
 2. The game service opens a database session and locks that game's row (`SELECT … FOR UPDATE`), so two
    actions on the same game can never interleave, even if they land on different serverless instances.
 3. The game's snapshot (≈50 KB of JSON) is loaded and validated into a Pydantic `GameState`. This takes about 2 ms.
@@ -81,6 +84,12 @@ Named save slots snapshot the game and roll history back consistently when loade
 **Serverless mode.** On Vercel `api/index.py` sets `SERVERLESS=1`. That turns off the per-process state
 cache, which would go stale across instances. It also switches to unpooled connections and creates tables on
 cold start. Run as a normal long-lived server, the backend keeps a write-through in-memory cache instead.
+
+**Accounts.** An account (email/password, Google, or both, linked by verified email) owns one player and
+its games and saves. Passwords are hashed with scrypt. Sessions are HMAC-signed bearer tokens that last
+30 days, so any serverless instance can check them without a session table. Google ID tokens are verified
+through Google's tokeninfo endpoint against `GOOGLE_CLIENT_ID`. The first account created in a browser that
+already holds a pre-accounts guest career adopts that career.
 
 **Live mode.** The ▶ LIVE button (1×, 2×, 4×) makes the browser request one hour at a time on a timer. The
 server returns each hour's tick path, and the charts replay it tick by tick. Popups that need an answer
@@ -165,17 +174,18 @@ requirements.txt    Slim runtime dependencies for the serverless function
 backend/
   app/
     api/            FastAPI routes (game, market, trade, research, risk, news, events, career, team, performance, leave)
-    database/       SQLAlchemy models (games, players, stocks, stock_prices, market_states, portfolios, holdings,
+    database/       SQLAlchemy models (accounts, games, players, stocks, stock_prices, market_states, portfolios, holdings,
                     transactions, events, news, employees, career_progress, career_levels, clients, game_days,
                     telemetry, leave_records, save_slots)
-    services/       game service (row locking, cache, persistence), serializers, indicators
+    services/       game service (row locking, cache, persistence), auth, serializers, indicators
     simulation/     time, market, economy, event, portfolio, risk, career, team, research, opportunity, player engines
     ml/             features, behaviour models, inference (fallback), adaptive director, training/
   tests/            pytest acceptance suite
 frontend/
   src/
     components/     terminal chrome, charts, modals & story popups, research, common UI, avatars
-    pages/          Dashboard, Markets, StockDetail, Portfolio, Research, Trading, News, Team, Career, Performance, Onboarding
+    pages/          Dashboard, Markets, StockDetail, Portfolio, Research, Trading, News, Team, Career, Performance, Onboarding, Login
+    auth/           AuthContext (session token, sign-in, sign-out)
     game/           GameContext (state, actions, live mode, tick replay), formatting
     services/       API client
     types/          DTO types
@@ -184,6 +194,7 @@ docs/               IB-Mode-How-To-Play.pdf, the player's field manual
 
 ## API
 
+`GET /api/auth/config` · `POST /api/auth/signup` · `/login` · `/google` · `GET /api/auth/me` ·
 `GET /api/game/state` · `POST /api/game/new` · `POST /api/game/advance-hour` · `/advance-hours` · `/advance-to-close` ·
 `/advance-next-business-day` · `/skip-weekend` · `/advance-week` · `/popup/ack` · `/save` · `GET /saves` · `POST /load`
 · `GET /api/market` · `GET /api/market/{symbol}?tf=1h|1d` · `GET /api/portfolio` · `POST /api/trade/quote|buy|sell` ·
@@ -191,12 +202,23 @@ docs/               IB-Mode-How-To-Play.pdf, the player's field manual
 `POST /api/opportunities/{id}/accept|decline` · `GET /api/news` · `GET /api/events` · `GET /api/career` ·
 `GET /api/team` · `POST /api/team/hire` · `GET /api/performance` · `POST /api/leave/start`.
 
-The active game is selected with the `X-Game-Id` header.
+Every route except `/api/auth/*` needs an `Authorization: Bearer <token>` header. The active game is
+selected with the `X-Game-Id` header.
+
+### Configuration
+
+| Variable | Needed | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Deployments | Postgres URL. Local runs default to SQLite. |
+| `AUTH_SECRET` | Recommended | Long random string that signs session tokens, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`. If unset, the key is derived from a Postgres `DATABASE_URL` (so rotating the database password signs everyone out), or an insecure dev key with SQLite. Changing it signs everyone out. |
+| `GOOGLE_CLIENT_ID` | Optional | OAuth 2.0 *Web application* client ID from Google Cloud Console → APIs & Services → Credentials. Add your site (and `http://localhost:5173` for development) under **Authorized JavaScript origins**. Leave unset to hide the Google button. |
+| `AUTH_TOKEN_DAYS` | Optional | Session length in days (default 30). |
 
 ## Testing
 
-- **Backend (pytest, 40 tests):** the design spec's acceptance list for game rules, time, career and
-  engineering, plus director fairness and ML fallback. The suite passes in both normal and serverless mode.
+- **Backend (pytest, 50 tests):** the design spec's acceptance list for game rules, time, career and
+  engineering, plus director fairness, ML fallback, and accounts: sign-up and login, Google token checks,
+  token tampering and expiry, and players being unable to reach each other's games or saves. The suite passes in both normal and serverless mode.
 - **Frontend (Vitest, 10 tests):** Indian number formatting, live tick replay, avatars and sparklines.
   The production build runs strict TypeScript.
 - **End to end:** a headless-browser script plays through onboarding, trades, research, theses, time skips,
@@ -209,7 +231,7 @@ The active game is selected with the `X-Game-Id` header.
   only.
 - There are no market holidays. The trading day is 09:00–17:00, as the design spec defines it.
 - Live mode is client-paced: a closed tab pauses the clock.
-- Careers are tied to the browser they were started in. There are no accounts yet.
+- There is no password reset or email verification yet, and no rate limiting on sign-in attempts.
 - The live site uses the rule-based director, and the trained model is learned from bot data rather than
   real players.
 
@@ -219,7 +241,7 @@ The active game is selected with the `X-Game-Id` header.
 2. Client mandates (the `clients` table is already seeded) with restrictions that interact with the risk engine.
 3. Train the behaviour and difficulty models on real player telemetry; A/B test the director against rules only.
 4. Bonds and hedging (index futures) as Level 3 instruments.
-5. Accounts, a server-side live clock (WebSocket push) and leaderboards.
+5. Password reset by email, a server-side live clock (WebSocket push) and leaderboards.
 
 ## License
 

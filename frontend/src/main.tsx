@@ -1,13 +1,28 @@
+import { Loader2 } from 'lucide-react'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { AuthProvider, useAuth } from './auth/AuthContext'
 import { GameProvider } from './game/GameContext'
+import Login from './pages/Login'
 import './index.css'
+
+function AuthGate() {
+  const { user, checking } = useAuth()
+  if (checking) return <div className="flex h-full items-center justify-center text-txt-mute"><Loader2 className="animate-spin" /></div>
+  if (!user) return <Login />
+  // Keyed by account so switching users starts from a clean game context.
+  return (
+    <GameProvider key={user.id}>
+      <App />
+    </GameProvider>
+  )
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GameProvider>
-      <App />
-    </GameProvider>
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   </StrictMode>,
 )

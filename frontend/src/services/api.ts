@@ -2,6 +2,39 @@ import type { ActionResponse, GameState, Quote, ResearchReport, SaveSlot, Symbol
 
 const GAME_KEY = 'ibm.gameId'
 const PLAYER_KEY = 'ibm.playerId'
+const TOKEN_KEY = 'ibm.token'
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  player_id: string
+  has_password: boolean
+  has_google: boolean
+  latest_game_id: string | null
+}
+
+export interface AuthResponse {
+  token: string
+  user: User
+}
+
+function store(key: string, value: string | null) {
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    /* storage unavailable: session-only play */
+  }
+}
+
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
 
 export class ApiError extends Error {
   code: string
@@ -15,40 +48,38 @@ export class ApiError extends Error {
 
 export const session = {
   get gameId(): string | null {
-    try {
-      return localStorage.getItem(GAME_KEY)
-    } catch {
-      return null
-    }
-  },
-  get playerId(): string | null {
-    try {
-      return localStorage.getItem(PLAYER_KEY)
-    } catch {
-      return null
-    }
-  },
-  set playerId(id: string | null) {
-    try {
-      if (id) localStorage.setItem(PLAYER_KEY, id)
-    } catch {
-      /* ignore */
-    }
+    return load(GAME_KEY)
   },
   set gameId(id: string | null) {
-    try {
-      if (id) localStorage.setItem(GAME_KEY, id)
-      else localStorage.removeItem(GAME_KEY)
-    } catch {
-      /* storage unavailable: session-only play */
-    }
+    store(GAME_KEY, id)
   },
+  /** Pre-login guest player from older versions; adopted by the first account created in this browser. */
+  get guestPlayerId(): string | null {
+    return load(PLAYER_KEY)
+  },
+  set guestPlayerId(id: string | null) {
+    store(PLAYER_KEY, id)
+  },
+  get token(): string | null {
+    return load(TOKEN_KEY)
+  },
+  set token(t: string | null) {
+    store(TOKEN_KEY, t)
+  },
+}
+
+let unauthorizedHandler: (() => void) | null = null
+/** Called when the server rejects the session token (expired, revoked or tampered). */
+export function onUnauthorized(fn: (() => void) | null) {
+  unauthorizedHandler = fn
 }
 
 async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const gid = session.gameId
   if (gid) headers['X-Game-Id'] = gid
+  const token = session.token
+  if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
   if (!res.ok) {
     let code = 'ERROR'
@@ -65,6 +96,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
     } catch {
       /* non-JSON error */
     }
+    if (res.status === 401 && code === 'UNAUTHORIZED' && token) unauthorizedHandler?.()
     throw new ApiError(res.status, code, message)
   }
   return res.json() as Promise<T>
@@ -72,9 +104,19 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
 
 type Act<R = unknown> = Promise<ActionResponse<R>>
 
+export const authApi = {
+  config: () => request<{ google_client_id: string | null }>('GET', '/auth/config'),
+  me: () => request<User>('GET', '/auth/me'),
+  login: (email: string, password: string) => request<AuthResponse>('POST', '/auth/login', { email, password }),
+  signup: (email: string, password: string, name: string) =>
+    request<AuthResponse>('POST', '/auth/signup', { email, password, name, guest_player_id: session.guestPlayerId ?? undefined }),
+  google: (credential: string) =>
+    request<AuthResponse>('POST', '/auth/google', { credential, guest_player_id: session.guestPlayerId ?? undefined }),
+}
+
 export const api = {
   newGame: (seed?: number, player_name?: string) =>
-    request<{ player_id: string; state: GameState }>('POST', '/game/new', { seed, player_name, player_id: session.playerId ?? undefined }),
+    request<{ player_id: string; state: GameState }>('POST', '/game/new', { seed, player_name }),
   restart: () => request<{ player_id: string; state: GameState }>('POST', '/game/restart'),
   state: () => request<GameState>('GET', '/game/state'),
 

@@ -119,7 +119,7 @@ export default function Onboarding() {
   )
 }
 
-function Backdrop() {
+export function Backdrop() {
   // Faint animated market lines behind the intro
   const paths = Array.from({ length: 6 }, (_, k) => {
     let y = 300 + k * 40
