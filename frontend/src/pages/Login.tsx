@@ -153,7 +153,8 @@ export default function Login() {
               <div className="mb-4 flex items-center gap-3 text-2xs uppercase tracking-[0.2em] text-txt-mute">
                 <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
               </div>
-              <div ref={googleRef} className="flex min-h-[44px] justify-center" />
+              {/* Google's button iframe paints an opaque white box when it inherits color-scheme: dark. */}
+              <div ref={googleRef} className="flex min-h-[44px] justify-center" style={{ colorScheme: 'light' }} />
             </div>
           )}
         </div>
