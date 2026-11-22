@@ -39,6 +39,19 @@ class Player(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Account(Base):
+    """Login identity (email/password and/or Google) that owns one player and its games."""
+    __tablename__ = "accounts"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    player_id: Mapped[str] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), unique=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True)
+    name: Mapped[str] = mapped_column(String(80), default="Player")
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Game(Base):
     __tablename__ = "games"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)

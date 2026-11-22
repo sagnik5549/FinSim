@@ -71,7 +71,7 @@ def new_game(player_name: str = "Player", seed: Optional[int] = None, player_id:
     game_id = uuid.uuid4().hex[:16]
     with session() as db:
         if player_id and db.get(m.Player, player_id) is None:
-            player_id = None
+            raise NotFound(player_id)
         if not player_id:
             player_id = uuid.uuid4().hex[:16]
             db.add(m.Player(id=player_id, name=(player_name or "Player")[:80]))
@@ -144,6 +144,13 @@ def load_slot(save_id: int, player_id: Optional[str] = None) -> dict:
             db.commit()
             _cache[slot.game_id] = (state, slot.player_id)
             return {"game_id": slot.game_id, "state": ser.full_state(state)}
+
+
+def owner_of(game_id: str) -> str:
+    """Player id that owns a game (cached state avoids a query when not serverless)."""
+    if not settings.SERVERLESS and game_id in _cache:
+        return _cache[game_id][1]
+    return player_of(game_id)
 
 
 def player_of(game_id: str) -> str:

@@ -8,9 +8,9 @@ import pytest
 from tests.conftest import clear_blocking
 
 
-def test_new_game_unique_seed(client):
-    a = client.post("/api/game/new", json={}).json()["state"]
-    b = client.post("/api/game/new", json={}).json()["state"]
+def test_new_game_unique_seed(client, auth):
+    a = client.post("/api/game/new", json={}, headers=auth).json()["state"]
+    b = client.post("/api/game/new", json={}, headers=auth).json()["state"]
     assert a["seed"] != b["seed"]
     assert a["game_id"] != b["game_id"]
 

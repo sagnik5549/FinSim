@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { Download, Palmtree, RotateCcw, Save, ShieldAlert, Upload } from 'lucide-react'
+import { Download, LogOut, Palmtree, RotateCcw, Save, ShieldAlert, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useAuth } from '../../auth/AuthContext'
 import { LIVE_SPEEDS, useGame, useGameState } from '../../game/GameContext'
 import { gameTime, money } from '../../game/format'
 import { api } from '../../services/api'
@@ -114,6 +115,7 @@ export function SavesModal() {
 export function SettingsModal() {
   const s = useGameState()
   const { setModal, speed, setSpeed, restart } = useGame()
+  const { user, logout } = useAuth()
   const [confirm, setConfirm] = useState(false)
   return (
     <Modal onClose={() => setModal(null)} width="max-w-[480px]">
@@ -126,6 +128,13 @@ export function SettingsModal() {
               <button key={sp.label} onClick={() => setSpeed(i)} className={clsx('chip !h-8 !px-4', speed === i && 'chip-on')}>{sp.label} · {sp.ms / 1000}s</button>
             ))}
           </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-ink-900 p-3">
+          <div className="min-w-0">
+            <div className="label">Signed in as</div>
+            <div className="truncate text-txt">{user?.name} · <span className="text-txt-dim">{user?.email}</span></div>
+          </div>
+          <Button size="sm" onClick={logout}><LogOut size={12} /> Sign out</Button>
         </div>
         <div className="rounded-md border border-line bg-ink-900 p-3 text-txt-dim">
           <div className="flex justify-between"><span>Career seed</span><span className="num text-txt">{s.seed}</span></div>

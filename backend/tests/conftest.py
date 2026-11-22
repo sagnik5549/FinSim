@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 import tempfile
 from pathlib import Path
 
@@ -22,13 +23,27 @@ def client():
         yield c
 
 
+def signup(client, **extra) -> dict:
+    """Register a fresh email/password account; returns the /signup response body."""
+    r = client.post("/api/auth/signup", json={"email": f"{uuid.uuid4().hex[:10]}@test.dev",
+                                              "password": "correct-horse", **extra})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 @pytest.fixture
-def game(client):
+def auth(client):
+    """Authorization header for a newly registered user."""
+    return {"Authorization": f"Bearer {signup(client)['token']}"}
+
+
+@pytest.fixture
+def game(client, auth):
     """A fresh game via the API; returns (client, headers, state)."""
-    r = client.post("/api/game/new", json={"seed": 1234})
+    r = client.post("/api/game/new", json={"seed": 1234}, headers=auth)
     assert r.status_code == 200, r.text
     body = r.json()
-    headers = {"X-Game-Id": body["state"]["game_id"]}
+    headers = {**auth, "X-Game-Id": body["state"]["game_id"]}
     return client, headers, body["state"]
 
 

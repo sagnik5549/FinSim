@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Accounts:** sign in with Google or with an email and password. Careers and saves belong to your account
+  and follow you across devices. Sign out from Settings.
+- New `/api/auth` routes (`config`, `signup`, `login`, `google`, `me`) and an `accounts` table.
+- New settings: `AUTH_SECRET` (recommended; falls back to a key derived from `DATABASE_URL`), `GOOGLE_CLIENT_ID`
+  and `AUTH_TOKEN_DAYS`.
+
+### Changed
+
+- Every game route now needs a signed-in user and only serves games that user owns. A guest career already
+  in the browser moves to the first account created there.
+
 ## [1.0.0] - 2026-10-04
 
 First public release, playable at https://fin-sim-investments.vercel.app.

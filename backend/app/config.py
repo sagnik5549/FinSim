@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     # Serverless (e.g. Vercel): requests for one game can hit different instances, so the
     # per-process state cache must be off and the database row lock serialises actions.
     SERVERLESS: bool = False
+    # Signs login session tokens. Must be set (to a long random string) in any deployment;
+    # local runs fall back to an insecure development key.
+    AUTH_SECRET: str = ""
+    AUTH_TOKEN_DAYS: int = 30
+    # OAuth client ID from Google Cloud Console; leave empty to hide "Sign in with Google".
+    GOOGLE_CLIENT_ID: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
