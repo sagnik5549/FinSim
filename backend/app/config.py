@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     AUTH_TOKEN_DAYS: int = 30
     # OAuth client ID from Google Cloud Console; leave empty to hide "Sign in with Google".
     GOOGLE_CLIENT_ID: str = ""
+    # Email for one-time codes: set RESEND_API_KEY, or the SMTP_* values (e.g. Gmail with an app password).
+    # With neither, local runs print emails to the console and serverless runs refuse to send.
+    RESEND_API_KEY: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    MAIL_FROM: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -26,7 +26,7 @@ def client():
 def signup(client, **extra) -> dict:
     """Register a fresh email/password account; returns the /signup response body."""
     r = client.post("/api/auth/signup", json={"email": f"{uuid.uuid4().hex[:10]}@test.dev",
-                                              "password": "correct-horse", **extra})
+                                              "password": "correct-horse-1", **extra})
     assert r.status_code == 200, r.text
     return r.json()
 

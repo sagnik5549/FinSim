@@ -15,6 +15,7 @@ export type Modal =
   | { kind: 'leave' }
   | { kind: 'saves' }
   | { kind: 'settings' }
+  | { kind: 'account' }
   | { kind: 'executed'; tx: { side: string; symbol: string; qty: number; price: number; value: number; realized_pnl: number; fee: number } }
   | null
 

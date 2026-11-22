@@ -2,8 +2,10 @@ import clsx from 'clsx'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { CodeInput, errorText, Notice } from '../auth/fields'
+import { PASSWORD_HINT, passwordProblem } from '../auth/password'
 import { Button } from '../components/common/ui'
-import { ApiError } from '../services/api'
+import { authApi } from '../services/api'
 import { Backdrop } from './Onboarding'
 
 interface GoogleId {
@@ -29,14 +31,9 @@ function loadGoogleScript(): Promise<void> {
   })
 }
 
-function message(e: unknown): string {
-  if (e instanceof ApiError) return e.message
-  return 'Could not reach the game server. Check your connection and try again.'
-}
-
 export default function Login() {
   const { login, signup, loginWithGoogle, googleClientId } = useAuth()
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -59,7 +56,7 @@ export default function Login() {
             try {
               await loginWithGoogle(credential)
             } catch (e) {
-              setError(message(e))
+              setError(errorText(e))
               setWorking(false)
             }
           },
@@ -77,8 +74,9 @@ export default function Login() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (mode === 'signup' && password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    const weak = mode === 'signup' ? passwordProblem(password, email) : null
+    if (weak) {
+      setError(weak)
       return
     }
     setWorking(true)
@@ -86,12 +84,12 @@ export default function Login() {
       if (mode === 'signin') await login(email, password)
       else await signup(email, password, name)
     } catch (err) {
-      setError(message(err))
+      setError(errorText(err))
       setWorking(false)
     }
   }
 
-  const switchMode = (m: 'signin' | 'signup') => {
+  const switchMode = (m: 'signin' | 'signup' | 'forgot') => {
     setMode(m)
     setError(null)
   }
@@ -107,6 +105,7 @@ export default function Login() {
         </div>
 
         <div className="panel overflow-hidden">
+          {mode === 'forgot' ? <ForgotPassword initialEmail={email} onDone={() => switchMode('signin')} /> : <>
           <div className="grid grid-cols-2 border-b border-line text-xs font-bold uppercase tracking-[0.18em]">
             {(['signin', 'signup'] as const).map((m) => (
               <button key={m} type="button" onClick={() => switchMode(m)}
@@ -135,21 +134,28 @@ export default function Login() {
                 minLength={mode === 'signup' ? 8 : undefined}
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                 onChange={(e) => setPassword(e.target.value)} />
-              {mode === 'signup' && <span className="mt-1 block text-2xs text-txt-mute">At least 8 characters.</span>}
+              {mode === 'signup' && <span className="mt-1 block text-2xs text-txt-mute">{PASSWORD_HINT}</span>}
             </label>
-
-            {error && (
-              <div role="alert" className="rounded-md border border-down/40 bg-down-soft px-3 py-2 text-xs text-down">{error}</div>
+            {mode === 'signin' && (
+              <div className="-mt-1 text-right">
+                <button type="button" onClick={() => switchMode('forgot')} className="text-2xs font-semibold text-info hover:underline">
+                  Forgot password?
+                </button>
+              </div>
             )}
+
+            {error && <Notice tone="error">{error}</Notice>}
 
             <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full tracking-[0.2em]">
               {working ? <Loader2 className="animate-spin" size={18} />
                 : <>{mode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'} <ArrowRight size={18} /></>}
             </Button>
           </form>
+          </>}
 
+          {/* Kept mounted while resetting a password so Google's button doesn't have to be re-rendered. */}
           {googleClientId && (
-            <div className="px-6 pb-6">
+            <div className={clsx('px-6 pb-6', mode === 'forgot' && 'hidden')}>
               <div className="mb-4 flex items-center gap-3 text-2xs uppercase tracking-[0.2em] text-txt-mute">
                 <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
               </div>
@@ -163,6 +169,92 @@ export default function Login() {
           A simulation game. Every company, index, price and person is fictional. Not financial advice.
         </p>
       </div>
+    </div>
+  )
+}
+
+/** Two steps: email a code, then enter it with a new password (which also signs in). */
+function ForgotPassword({ initialEmail, onDone }: { initialEmail: string; onDone: () => void }) {
+  const { resetPassword } = useAuth()
+  const [email, setEmail] = useState(initialEmail)
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+
+  const send = async (e?: FormEvent) => {
+    e?.preventDefault()
+    setError(null)
+    setWorking(true)
+    try {
+      setSentTo((await authApi.forgotPassword(email)).sent_to)
+      setCode('')
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const reset = async (e: FormEvent) => {
+    e.preventDefault()
+    const weak = passwordProblem(password, email)
+    if (weak) {
+      setError(weak)
+      return
+    }
+    setError(null)
+    setWorking(true)
+    try {
+      await resetPassword(email, code, password)
+    } catch (err) {
+      setError(errorText(err))
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div className="px-6 py-5">
+      <div className="mb-1 font-display text-lg font-bold">Reset your password</div>
+      {!sentTo ? (
+        <form onSubmit={send} className="space-y-3">
+          <p className="text-xs text-txt-dim">Enter your account email and we'll send you a 6-digit code.</p>
+          <label className="block">
+            <span className="label">Email</span>
+            <input className="input mt-1" type="email" required value={email} maxLength={254} autoComplete="email" autoFocus
+              onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          {error && <Notice tone="error">{error}</Notice>}
+          <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full tracking-[0.2em]">
+            {working ? <Loader2 className="animate-spin" size={18} /> : <>SEND CODE <ArrowRight size={18} /></>}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={reset} className="space-y-3">
+          <Notice tone="info">If an account exists for that email, a code is on its way to {sentTo}. It expires in 10 minutes.</Notice>
+          <label className="block">
+            <span className="label">Code</span>
+            <CodeInput value={code} onChange={setCode} autoFocus />
+          </label>
+          <label className="block">
+            <span className="label">New password</span>
+            <input className="input mt-1" type="password" required minLength={8} maxLength={128} autoComplete="new-password"
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+            <span className="mt-1 block text-2xs text-txt-mute">{PASSWORD_HINT}</span>
+          </label>
+          {error && <Notice tone="error">{error}</Notice>}
+          <Button type="submit" variant="gold" size="lg" disabled={working || code.length !== 6} className="w-full tracking-[0.2em]">
+            {working ? <Loader2 className="animate-spin" size={18} /> : <>SET PASSWORD &amp; SIGN IN <ArrowRight size={18} /></>}
+          </Button>
+          <button type="button" onClick={() => send()} disabled={working} className="text-2xs font-semibold text-info hover:underline disabled:opacity-50">
+            Send a new code
+          </button>
+        </form>
+      )}
+      <button type="button" onClick={onDone} className="mt-4 block text-2xs font-semibold text-txt-mute hover:text-txt">
+        ← Back to sign in
+      </button>
     </div>
   )
 }

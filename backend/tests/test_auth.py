@@ -27,7 +27,7 @@ def test_signup_login_and_me(client):
     user = r.json()["user"]
     assert user["email"] == email.lower() and user["name"] == "Asha" and user["latest_game_id"] is None
 
-    dup = client.post("/api/auth/signup", json={"email": email.upper(), "password": "another-pass"})
+    dup = client.post("/api/auth/signup", json={"email": email.upper(), "password": "another-pass-1"})
     assert dup.status_code == 409 and dup.json()["detail"]["code"] == "EMAIL_TAKEN"
 
     bad = client.post("/api/auth/login", json={"email": email, "password": "wrong-password"})
@@ -61,7 +61,7 @@ def test_tampered_or_expired_token_rejected(client):
     forged = auth_svc._b64(json.dumps({"sub": "x", "pid": "y", "exp": int(time.time()) + 999}).encode())
     assert client.get("/api/auth/me", headers=bearer(f"{forged}.{sig}")).status_code == 401
     payload = auth_svc.read_token(tok)
-    acct = type("A", (), {"id": payload["sub"], "player_id": payload["pid"]})()
+    acct = type("A", (), {"id": payload["sub"], "player_id": payload["pid"], "session_version": 0})()
     old = settings.AUTH_TOKEN_DAYS
     settings.AUTH_TOKEN_DAYS = -1
     try:

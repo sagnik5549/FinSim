@@ -43,7 +43,8 @@ first-week playbook.
 | ML | **scikit-learn**, joblib (XGBoost/SHAP optional) | Player-behaviour classifier, trained offline on bot play |
 | Hosting | **Vercel** | Static frontend + one Python serverless function |
 | Auth | stdlib scrypt + HMAC-signed tokens, Google Identity Services | Email/password and Google sign-in |
-| Testing | **pytest**, **Vitest**, Testing Library | 50 backend and 10 frontend tests |
+| Email | Resend HTTP API or any SMTP server (stdlib) | One-time codes for password reset and account changes |
+| Testing | **pytest**, **Vitest**, Testing Library | 63 backend and 11 frontend tests |
 
 ---
 
@@ -90,6 +91,21 @@ its games and saves. Passwords are hashed with scrypt. Sessions are HMAC-signed 
 30 days, so any serverless instance can check them without a session table. Google ID tokens are verified
 through Google's tokeninfo endpoint against `GOOGLE_CLIENT_ID`. The first account created in a browser that
 already holds a pre-accounts guest career adopts that career.
+
+**Account security.**
+
+- **Forgot password:** emails a 6-digit code; entering it with a new password signs you in. It also lets a
+  Google-only account add a password.
+- **Signed-in changes:** changing your email sends the code to the *new* address and tells the old one.
+  Changing or adding a password sends the code to your current email.
+- **Codes:** stored only as HMACs. They expire after 10 minutes, allow 5 guesses, and requesting a new code
+  voids the old one.
+- **Revoking sessions:** every token carries the account's `session_version`. A password change or reset, or
+  "Sign out of other devices", bumps it, which signs out every other session.
+- **Limits:** 5 wrong passwords lock that email for 15 minutes (30 per IP). Code emails are capped at one a
+  minute and 5 an hour per address (20 an hour per IP). Unknown emails get the same answers and limits, so
+  the forms don't reveal which emails have accounts.
+- **Passwords:** at least 8 characters, with a letter and a number, and not your email address.
 
 **Live mode.** The ▶ LIVE button (1×, 2×, 4×) makes the browser request one hour at a time on a timer. The
 server returns each hour's tick path, and the charts replay it tick by tick. Popups that need an answer
@@ -195,6 +211,8 @@ docs/               IB-Mode-How-To-Play.pdf, the player's field manual
 ## API
 
 `GET /api/auth/config` · `POST /api/auth/signup` · `/login` · `/google` · `GET /api/auth/me` ·
+`POST /api/auth/password/forgot` · `/password/reset` · `/code` · `/email` · `/password` · `/profile` ·
+`/sign-out-everywhere` ·
 `GET /api/game/state` · `POST /api/game/new` · `POST /api/game/advance-hour` · `/advance-hours` · `/advance-to-close` ·
 `/advance-next-business-day` · `/skip-weekend` · `/advance-week` · `/popup/ack` · `/save` · `GET /saves` · `POST /load`
 · `GET /api/market` · `GET /api/market/{symbol}?tf=1h|1d` · `GET /api/portfolio` · `POST /api/trade/quote|buy|sell` ·
@@ -202,7 +220,7 @@ docs/               IB-Mode-How-To-Play.pdf, the player's field manual
 `POST /api/opportunities/{id}/accept|decline` · `GET /api/news` · `GET /api/events` · `GET /api/career` ·
 `GET /api/team` · `POST /api/team/hire` · `GET /api/performance` · `POST /api/leave/start`.
 
-Every route except `/api/auth/*` needs an `Authorization: Bearer <token>` header. The active game is
+Every route except signing in, signing up and password reset needs an `Authorization: Bearer <token>` header. The active game is
 selected with the `X-Game-Id` header.
 
 ### Configuration
@@ -213,13 +231,22 @@ selected with the `X-Game-Id` header.
 | `AUTH_SECRET` | Recommended | Long random string that signs session tokens, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`. If unset, the key is derived from a Postgres `DATABASE_URL` (so rotating the database password signs everyone out), or an insecure dev key with SQLite. Changing it signs everyone out. |
 | `GOOGLE_CLIENT_ID` | Optional | OAuth 2.0 *Web application* client ID from Google Cloud Console → APIs & Services → Credentials. Add your site (and `http://localhost:5173` for development) under **Authorized JavaScript origins**. Leave unset to hide the Google button. |
 | `AUTH_TOKEN_DAYS` | Optional | Session length in days (default 30). |
+| `RESEND_API_KEY` | For email | API key from resend.com. Takes priority over SMTP. Without a verified domain, Resend only delivers to your own address. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | For email | Any SMTP server. Gmail: `smtp.gmail.com`, port `587`, your address and a Google *App password*. |
+| `MAIL_FROM` | Optional | Sender, e.g. `Apex Capital <no-reply@yourdomain.com>`. Defaults to Resend's test sender or `SMTP_USER`. |
+
+With no email provider, local runs print each email (and its code) to the server console, and deployments
+answer code requests with `503 EMAIL_NOT_CONFIGURED`.
 
 ## Testing
 
-- **Backend (pytest, 50 tests):** the design spec's acceptance list for game rules, time, career and
+- **Backend (pytest, 63 tests):** the design spec's acceptance list for game rules, time, career and
   engineering, plus director fairness, ML fallback, and accounts: sign-up and login, Google token checks,
-  token tampering and expiry, and players being unable to reach each other's games or saves. The suite passes in both normal and serverless mode.
-- **Frontend (Vitest, 10 tests):** Indian number formatting, live tick replay, avatars and sparklines.
+  token tampering and expiry, players being unable to reach each other's games or saves, password reset,
+  code-confirmed email and password changes, session revocation, lockouts, code limits and the column
+  migration. The suite passes in both normal and serverless mode.
+- **Frontend (Vitest, 11 tests):** Indian number formatting, live tick replay, avatars, sparklines and
+  password rules.
   The production build runs strict TypeScript.
 - **End to end:** a headless-browser script plays through onboarding, trades, research, theses, time skips,
   saves and every page against the production build.
@@ -231,7 +258,7 @@ selected with the `X-Game-Id` header.
   only.
 - There are no market holidays. The trading day is 09:00–17:00, as the design spec defines it.
 - Live mode is client-paced: a closed tab pauses the clock.
-- There is no password reset or email verification yet, and no rate limiting on sign-in attempts.
+- Sign-up doesn't confirm that you own the email address (only password reset and email changes send codes).
 - The live site uses the rule-based director, and the trained model is learned from bot data rather than
   real players.
 
@@ -241,7 +268,7 @@ selected with the `X-Game-Id` header.
 2. Client mandates (the `clients` table is already seeded) with restrictions that interact with the risk engine.
 3. Train the behaviour and difficulty models on real player telemetry; A/B test the director against rules only.
 4. Bonds and hedging (index futures) as Level 3 instruments.
-5. Password reset by email, a server-side live clock (WebSocket push) and leaderboards.
+5. A server-side live clock (WebSocket push) and leaderboards.
 
 ## License
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -41,4 +41,21 @@ def init_db() -> None:
     from app.database import models  # noqa: F401  (register tables)
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
     models.seed_static(SessionLocal)
+
+
+# create_all never alters existing tables, so columns added after a table first shipped are added here.
+_LATE_COLUMNS = {"accounts": {"session_version": "INTEGER NOT NULL DEFAULT 0"}}
+
+
+def _add_missing_columns() -> None:
+    insp = inspect(engine)
+    for table, columns in _LATE_COLUMNS.items():
+        present = {c["name"] for c in insp.get_columns(table)}
+        for name, ddl in columns.items():
+            if name in present:
+                continue
+            guard = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {guard}{name} {ddl}"))

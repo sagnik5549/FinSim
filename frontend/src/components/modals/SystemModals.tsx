@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Download, LogOut, Palmtree, RotateCcw, Save, ShieldAlert, Upload } from 'lucide-react'
+import { Download, LogOut, Palmtree, RotateCcw, Save, ShieldAlert, Upload, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { LIVE_SPEEDS, useGame, useGameState } from '../../game/GameContext'
@@ -134,7 +134,10 @@ export function SettingsModal() {
             <div className="label">Signed in as</div>
             <div className="truncate text-txt">{user?.name} · <span className="text-txt-dim">{user?.email}</span></div>
           </div>
-          <Button size="sm" onClick={logout}><LogOut size={12} /> Sign out</Button>
+          <div className="flex shrink-0 gap-2">
+            <Button size="sm" onClick={() => setModal({ kind: 'account' })}><UserRound size={12} /> Manage account</Button>
+            <Button size="sm" onClick={logout}><LogOut size={12} /> Sign out</Button>
+          </div>
         </div>
         <div className="rounded-md border border-line bg-ink-900 p-3 text-txt-dim">
           <div className="flex justify-between"><span>Career seed</span><span className="num text-txt">{s.seed}</span></div>
