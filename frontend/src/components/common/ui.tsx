@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useLiveValue } from '../../game/GameContext'
+import { useLivePrice } from '../../game/live'
+import { color as themeColor } from '../../game/theme'
 import { num, pct, price as fmtPrice, toneClass } from '../../game/format'
 
 export function Panel({
@@ -11,7 +12,7 @@ export function Panel({
     <section className={clsx('panel flex min-h-0 flex-col', className)}>
       {title !== undefined && (
         <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-          <h2 className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-[0.14em] text-txt-dim">
+          <h2 className="flex min-w-0 items-center gap-2 text-xs font-medium text-txt-dim">
             {icon}
             {title}
           </h2>
@@ -33,10 +34,10 @@ export function Sparkline({ data, width = 80, height = 24, color, fill = true, c
   const pts = data.map((v, i) => [(i / (data.length - 1)) * width, height - 2 - ((v - min) / span) * (height - 4)])
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('')
   const up = data[data.length - 1] >= data[0]
-  const c = color ?? (up ? '#26D07C' : '#F2495C')
+  const c = color ?? (up ? themeColor('up') : themeColor('down'))
   return (
     <svg width={width} height={height} className={className} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      {fill && <path d={`${d}L${width},${height}L0,${height}Z`} fill={c} opacity={0.12} />}
+      {fill && <path d={`${d}L${width},${height}L0,${height}Z`} fill={c} opacity={0.07} />}
       <path d={d} fill="none" stroke={c} strokeWidth={1.4} strokeLinejoin="round" />
       <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r={1.8} fill={c} />
     </svg>
@@ -56,7 +57,7 @@ export function Badge({ children, tone = 'neutral', className }: {
     neutral: 'bg-ink-700 text-txt-dim border-line',
   }
   return (
-    <span className={clsx('inline-flex items-center gap-1 rounded border px-1.5 py-px text-2xs font-semibold uppercase tracking-wider', map[tone], className)}>
+    <span className={clsx('inline-flex items-center gap-1 rounded border px-1.5 py-px text-2xs font-medium', map[tone], className)}>
       {children}
     </span>
   )
@@ -69,11 +70,11 @@ export function Button({
   disabled?: boolean; className?: string; title?: string; size?: 'sm' | 'md' | 'lg'; type?: 'button' | 'submit'
 }) {
   const v = {
-    primary: 'bg-info text-white hover:bg-[#5d99ff] shadow-glowInfo border-info',
-    buy: 'bg-up/90 text-ink-950 hover:bg-up border-up shadow-glowUp',
-    sell: 'bg-down/90 text-white hover:bg-down border-down shadow-glowDown',
+    primary: 'bg-info text-white hover:bg-info/90 border-info',
+    buy: 'bg-info text-white hover:bg-info/90 border-info',
+    sell: 'bg-down text-white hover:bg-down/90 border-down',
     warn: 'bg-warn/15 text-warn hover:bg-warn/25 border-warn/40',
-    gold: 'bg-gold text-ink-950 hover:brightness-110 border-gold shadow-glowGold',
+    gold: 'bg-gold text-white hover:brightness-110 border-gold',
     ghost: 'bg-ink-750 text-txt hover:bg-ink-700 border-line hover:border-ink-500',
     subtle: 'bg-transparent text-txt-dim hover:text-txt hover:bg-ink-750 border-transparent',
   }[variant]
@@ -85,7 +86,7 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        'inline-flex select-none items-center justify-center gap-2 rounded-md border font-semibold tracking-wide transition',
+        'inline-flex select-none items-center justify-center gap-2 rounded border font-medium transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none',
         v, s, className,
       )}
@@ -110,7 +111,7 @@ export function Bar({ value, max = 1, tone = 'info', className, marker }: {
   )
 }
 
-export function Ring({ value, size = 88, stroke = 7, color = '#4C8DFF', children }: {
+export function Ring({ value, size = 88, stroke = 7, color = themeColor('info'), children }: {
   value: number; size?: number; stroke?: number; color?: string; children?: ReactNode
 }) {
   const r = (size - stroke) / 2
@@ -119,10 +120,10 @@ export function Ring({ value, size = 88, stroke = 7, color = '#4C8DFF', children
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="#172136" strokeWidth={stroke} fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={r} stroke="rgb(var(--ink-700))" strokeWidth={stroke} fill="none" />
         <circle
           cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none" strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c * (1 - v)} style={{ transition: 'stroke-dashoffset .8s ease', filter: `drop-shadow(0 0 6px ${color}66)` }}
+          strokeDasharray={c} strokeDashoffset={c * (1 - v)} style={{ transition: 'stroke-dashoffset .8s ease' }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
@@ -134,7 +135,7 @@ export function Ring({ value, size = 88, stroke = 7, color = '#4C8DFF', children
 export function LivePrice({ symbol, value, decimals = 2, className, prefix = '₹' }: {
   symbol: string; value: number; decimals?: number; className?: string; prefix?: string
 }) {
-  const live = useLiveValue(symbol, value)
+  const live = useLivePrice(symbol, value)
   const prev = useRef(value)
   const [flash, setFlash] = useState<'up' | 'down' | null>(null)
   useEffect(() => {
@@ -176,9 +177,9 @@ export function Modal({ children, onClose, width = 'max-w-lg', className, closab
     return () => window.removeEventListener('keydown', h)
   }, [closable, onClose])
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/75 p-4 backdrop-blur-[3px] animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fadeIn">
       <div role="dialog" aria-modal="true" aria-labelledby={labelledBy}
-        className={clsx('panel relative max-h-[92vh] w-full overflow-y-auto animate-scaleIn', width, className)}>
+        className={clsx('panel relative max-h-[92vh] w-full overflow-y-auto shadow-pop animate-scaleIn', width, className)}>
         {closable && onClose && (
           <button onClick={onClose} aria-label="Close" className="absolute right-3 top-3 z-10 rounded p-1 text-txt-mute hover:bg-ink-700 hover:text-txt">
             <X size={16} />

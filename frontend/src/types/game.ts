@@ -17,6 +17,7 @@ export interface Clock {
   working_day: boolean
   is_on_leave: boolean
   hours_to_close: number
+  minutes_to_close: number
   iso: string
   label: string
   time: string
@@ -110,6 +111,7 @@ export interface StockRow {
   open: number
   volume: number
   prev_volume: number
+  avg_volume: number
   volatility: number
   beta: number
   momentum: number
@@ -301,9 +303,65 @@ export interface Transaction {
   source: string
 }
 
-export interface LastTick {
-  t: string | null
-  paths: Record<string, number[]>
+export type OrderType = 'MARKET' | 'LIMIT' | 'SL' | 'SL-M'
+export type OrderStatus = 'OPEN' | 'TRIGGERED' | 'EXECUTED' | 'CANCELLED' | 'REJECTED' | 'EXPIRED'
+
+export interface Order {
+  id: string
+  symbol: string
+  name: string
+  side: 'BUY' | 'SELL'
+  type: OrderType
+  qty: number
+  price: number | null
+  trigger: number | null
+  validity: 'DAY' | 'GTC'
+  status: OrderStatus
+  created: string
+  updated: string
+  tag: '' | 'TARGET' | 'STOPLOSS'
+  group: string | null
+  target: number | null
+  stoploss: number | null
+  fill_price: number | null
+  tx_id: string | null
+  reason: string
+  ltp: number | null
+}
+
+export interface PriceAlert {
+  id: string
+  symbol: string
+  op: 'ABOVE' | 'BELOW'
+  price: number
+  created: string
+  status: 'ACTIVE' | 'TRIGGERED' | 'CANCELLED'
+  triggered_at: string | null
+  note: string
+}
+
+export interface ResearchJob {
+  id: string
+  symbol: string
+  depth: 'QUICK' | 'DEEP'
+  started: string
+  ready_at: string
+}
+
+/** Latest 1-minute bars for every symbol: bars[symbol][i] = [o, h, l, c, v] at time t[i]. */
+export interface RecentMinutes {
+  t: string[]
+  bars: Record<string, number[][]>
+}
+
+export interface LiveInfo {
+  speed: number
+  speeds: number[]
+  seconds_per_minute: number
+  next_tick_in: number
+  running: boolean
+  session_seconds: number
+  enabled: boolean
 }
 
 export interface GameState {
@@ -330,7 +388,11 @@ export interface GameState {
   theses: Thesis[]
   transactions: Transaction[]
   stats: { hours_worked: number; hours_skipped: number; trades: number; research_count: number }
-  last_tick: LastTick | null
+  orders: Order[]
+  alerts: PriceAlert[]
+  research_jobs: ResearchJob[]
+  minutes: RecentMinutes | null
+  live: LiveInfo
 }
 
 export interface Candle {
@@ -370,9 +432,19 @@ export interface Fundamentals {
   institutional_flow: 'BUYING' | 'SELLING' | 'NEUTRAL'
 }
 
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '1d'
+
+export interface DepthLevel {
+  price: number
+  qty: number
+  orders: number
+}
+
 export interface SymbolDetail {
   symbol: string
-  tf: '1h' | '1d'
+  tf: Timeframe
+  as_of: string
+  depth?: { bids: DepthLevel[]; asks: DepthLevel[]; total_bid: number; total_ask: number; tick: number }
   candles: Candle[]
   indicators: Indicators
   stock?: StockRow
@@ -406,6 +478,18 @@ export interface Quote {
   sector_after?: number
 }
 
+export interface TickResponse {
+  unchanged?: boolean
+  version?: number
+  live?: LiveInfo
+}
+
+export interface TickResponse {
+  unchanged?: boolean
+  version?: number
+  live?: LiveInfo
+}
+
 export interface ActionResponse<R = unknown> {
   result: R
   state: GameState
@@ -431,3 +515,4 @@ export type Page =
   | 'career'
   | 'performance'
   | 'stock'
+  | 'orders'

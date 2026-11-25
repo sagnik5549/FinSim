@@ -32,7 +32,8 @@ def stock_row(state: GameState, s: StockState) -> dict[str, Any]:
         "change": s.price - s.prev_close, "change_pct": s.price / s.prev_close - 1 if s.prev_close else 0.0,
         "week_change_pct": s.price / s.week_ago_price - 1 if s.week_ago_price else 0.0,
         "day_high": round(s.day_high, 2), "day_low": round(s.day_low, 2), "open": s.day_open,
-        "volume": int(s.volume_today), "prev_volume": int(s.prev_volume), "volatility": round(s.realized_vol, 4), "beta": round(s.beta, 2),
+        "volume": int(s.volume_today), "prev_volume": int(s.prev_volume),
+        "avg_volume": int(s.avg_hourly_volume * 8), "volatility": round(s.realized_vol, 4), "beta": round(s.beta, 2),
         "momentum": round(s.momentum * 100, 3), "pe": round(s.price / s.eps, 1) if s.eps > 0 else None,
         "valuation": round(s.valuation, 3), "sentiment": round(s.sentiment, 3),
         "sentiment_label": sentiment_label(s.sentiment), "risk": stock_risk(s),
@@ -174,6 +175,21 @@ def full_state(state: GameState, include_paths: bool = True) -> dict[str, Any]:
         "transactions": [t.model_dump(mode="json") for t in reversed(s.transactions[-25:])],
         "stats": {"hours_worked": s.stats.hours_worked, "hours_skipped": s.stats.hours_skipped,
                   "trades": s.stats.trades, "research_count": s.stats.research_count},
-        "last_tick": ({"t": s.last_tick.t.isoformat() if s.last_tick.t else None, "paths": s.last_tick.paths}
-                      if include_paths else None),
+        "orders": orders(s),
+        "alerts": [a.model_dump(mode="json") for a in reversed(s.alerts[-60:])],
+        "research_jobs": [j.model_dump(mode="json") for j in s.research_jobs],
+        # Latest 1-minute bars of every symbol: the browser stitches them onto its charts.
+        "minutes": {"t": s.recent.t, "bars": s.recent.bars} if include_paths else None,
     }
+
+
+def orders(state: GameState) -> list[dict[str, Any]]:
+    open_ = [o for o in state.orders if o.status in ("OPEN", "TRIGGERED")]
+    done = [o for o in state.orders if o.status not in ("OPEN", "TRIGGERED")][-60:]
+    out = []
+    for o in reversed(sorted(open_ + done, key=lambda x: (x.updated, x.id))):
+        d = o.model_dump(mode="json")
+        d["name"] = state.stocks[o.symbol].name if o.symbol in state.stocks else o.symbol
+        d["ltp"] = state.stocks[o.symbol].price if o.symbol in state.stocks else None
+        out.append(d)
+    return out

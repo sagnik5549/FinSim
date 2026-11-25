@@ -1,21 +1,18 @@
 import clsx from 'clsx'
 import { AlertTriangle, CalendarDays, Clock3, Gavel, Mail, Newspaper, Zap } from 'lucide-react'
 import { useState } from 'react'
-import { samplePath, useGame, useGameState, useLiveProgress } from '../../game/GameContext'
+import { useGame, useGameState } from '../../game/GameContext'
+import { useLiveNav as useNav } from '../../game/live'
+import { color } from '../../game/theme'
 import { gameTime, hhmm, int, money, pct, price, shortDate, toneClass } from '../../game/format'
 import { api } from '../../services/api'
 import type { CalendarItem, NewsItem } from '../../types/game'
 import { Avatar } from '../common/Avatar'
 import { Badge, Bar, Button, Change, Empty, LivePrice, Panel, Ring } from '../common/ui'
 
-/** Portfolio value that moves with the live intra-hour tick replay. */
+/** Portfolio value marked at live prices. */
 export function useLiveNav(): number {
-  const s = useGameState()
-  const { replay, progress } = useLiveProgress()
-  if (!replay || progress >= 1) return s.portfolio.value
-  let v = s.portfolio.cash
-  for (const h of s.holdings) v += h.qty * (samplePath(replay.paths[h.symbol], progress) ?? h.price)
-  return v
+  return useNav(useGameState())
 }
 
 export function PortfolioCard() {
@@ -25,13 +22,13 @@ export function PortfolioCard() {
   const ret = navLive / p.starting_capital - 1
   const progress = (navLive - p.starting_capital) / Math.max(1, p.target_value - p.starting_capital)
   const ddLimit = s.career.max_drawdown_limit
-  const ringColor = progress >= 1 ? '#E9B949' : progress >= 0 ? '#4C8DFF' : '#F2495C'
+  const ringColor = progress >= 1 ? color('gold') : progress >= 0 ? color('info') : color('down')
   return (
     <Panel title="Portfolio" right={<Badge tone={s.risk.level === 'LOW' ? 'up' : s.risk.level === 'MEDIUM' ? 'info' : s.risk.level === 'HIGH' ? 'warn' : 'down'}>Risk {s.risk.level}</Badge>}>
       <div className="flex items-center gap-4 p-3">
         <Ring value={Math.max(0, progress)} color={ringColor} size={92}>
           <span className="num text-lg font-bold leading-none">{Math.round(progress * 100)}%</span>
-          <span className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-txt-mute">to target</span>
+          <span className="mt-1 text-[9px] font-semibold text-txt-mute">to target</span>
         </Ring>
         <div className="min-w-0 flex-1">
           <div className="label">Current value</div>
@@ -72,7 +69,7 @@ export function HoldingsTable({ compact = false }: { compact?: boolean }) {
   const s = useGameState()
   const { openSymbol, setModal } = useGame()
   if (s.holdings.length === 0)
-    return <Empty>100% cash. Open <b className="mx-1 text-txt">Markets</b> or press <b className="mx-1 text-up">BUY STOCK</b> to deploy capital.</Empty>
+    return <Empty>No positions yet. You are 100% in cash. Hover a stock in the watchlist and press B to buy.</Empty>
   return (
     <table className="w-full text-xs">
       <thead className="table-head">
@@ -197,11 +194,10 @@ export function OpportunityCards() {
   return (
     <div className="space-y-2">
       {open.map((o) => (
-        <div key={o.id} className="relative overflow-hidden rounded-lg border border-gold/40 bg-gradient-to-br from-gold/10 to-transparent p-3">
-          <div className="absolute inset-x-0 top-0 h-px overflow-hidden"><div className="h-px w-1/2 animate-sweep bg-gold" /></div>
+        <div key={o.id} className="rounded-md border border-gold/40 bg-gold/5 p-3">
           <div className="flex items-center gap-2">
             <Zap size={14} className="text-gold" />
-            <span className="text-2xs font-bold uppercase tracking-wider text-gold">Block deal</span>
+            <span className="text-xs font-medium text-gold">Block deal</span>
             <span className="num ml-auto flex items-center gap-1 text-2xs font-bold text-warn"><Clock3 size={11} /> expires {hhmm(o.expires_at)} · {Math.round(o.minutes_left / 60)}h</span>
           </div>
           <div className="mt-1.5 text-[13px] font-semibold">{o.name} <span className="text-txt-mute">({o.symbol})</span></div>

@@ -29,7 +29,8 @@ def test_skip_hours_processes_every_hour(engine):
     assert s.now == t0 + timedelta(hours=4)
     assert all(x.processed for x in s.scheduled if x.id.startswith("T"))
     assert len(s.portfolio.hourly_nav) == hourly_before + 4
-    assert s.last_tick.t == t0 + timedelta(hours=3)
+    assert s.hour is None  # no hour left half-played
+    assert s.recent.t[-1] == (t0 + timedelta(hours=4, minutes=-1)).isoformat()
 
 
 def test_skip_hours_stops_at_close(engine):

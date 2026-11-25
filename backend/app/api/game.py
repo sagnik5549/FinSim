@@ -1,9 +1,17 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import current_player, game_id_header
-from app.schemas.requests import AckRequest, AdvanceHoursRequest, LoadRequest, NewGameRequest, ReadRequest, SaveRequest
+from app.schemas.requests import (
+    AckRequest,
+    AdvanceHoursRequest,
+    LoadRequest,
+    NewGameRequest,
+    ReadRequest,
+    SaveRequest,
+    SpeedRequest,
+    TickRequest,
+)
 from app.services import game_service as svc
-from app.services import serializers as ser
 
 router = APIRouter()
 
@@ -15,7 +23,18 @@ def new_game(req: NewGameRequest, player_id: str = Depends(current_player)):
 
 @router.get("/state")
 def get_state(game_id: str = Depends(game_id_header)):
-    return svc.read(game_id, ser.full_state)
+    return svc.tick(game_id)
+
+
+@router.post("/tick")
+def tick(req: TickRequest, game_id: str = Depends(game_id_header)):
+    """Bring the live market up to the present. Returns {unchanged: true} when nothing moved."""
+    return svc.tick(game_id, req.version)
+
+
+@router.post("/speed")
+def set_speed(req: SpeedRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.set_speed(req.speed, svc.live_speeds()))
 
 
 @router.post("/advance-hour")

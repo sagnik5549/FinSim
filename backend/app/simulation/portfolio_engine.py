@@ -96,8 +96,8 @@ def quote(state: GameState, side: str, symbol: str, qty: int, price_override: Op
         if impact > 0.004:
             warnings.append(f"Large order: estimated market impact {impact * 100:.2f}% of price.")
     else:
-        impact = _impact(state, symbol, qty)
-        px = s.price * (1 - impact)
+        impact = 0.0 if price_override else _impact(state, symbol, qty)
+        px = price_override or s.price * (1 - impact)
         value = px * qty
         fee = max(MIN_FEE, value * (FEE_RATE + STT_RATE))
         total = value - fee
@@ -134,7 +134,8 @@ def execute_buy(state: GameState, symbol: str, qty: int, source: str = "PLAYER",
     return tx
 
 
-def execute_sell(state: GameState, symbol: str, qty: int, source: str = "PLAYER") -> Transaction:
+def execute_sell(state: GameState, symbol: str, qty: int, source: str = "PLAYER",
+                 price_override: Optional[float] = None) -> Transaction:
     _validate(state, symbol, qty)
     p = state.portfolio
     h = p.holdings.get(symbol)
@@ -142,7 +143,7 @@ def execute_sell(state: GameState, symbol: str, qty: int, source: str = "PLAYER"
         raise TradeError("NO_POSITION", f"You do not hold any {symbol}.")
     if qty > h.qty:
         raise TradeError("INSUFFICIENT_SHARES", f"Cannot sell {qty:,} shares; you only hold {h.qty:,}.")
-    q = quote(state, "SELL", symbol, qty)
+    q = quote(state, "SELL", symbol, qty, price_override)
     p.cash += q.total
     p.fees_paid += q.fee
     realized = (q.exec_price - h.avg_cost) * qty - q.fee

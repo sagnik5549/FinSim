@@ -10,8 +10,11 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import game_id_header
 from app.schemas.requests import (
     AcceptOpportunityRequest,
+    AlertRequest,
     HireRequest,
     LeaveRequest,
+    ModifyOrderRequest,
+    OrderRequest,
     QuoteRequest,
     ResearchRequest,
     ResolveRiskRequest,
@@ -36,6 +39,8 @@ team = APIRouter()
 performance = APIRouter()
 leave = APIRouter()
 opportunities = APIRouter()
+orders = APIRouter()
+alerts = APIRouter()
 
 
 # ---------------------------------------------------------------- portfolio
@@ -61,6 +66,39 @@ def buy(req: TradeRequest, game_id: str = Depends(game_id_header)):
 @trade.post("/sell")
 def sell(req: TradeRequest, game_id: str = Depends(game_id_header)):
     return svc.act(game_id, lambda e: e.trade("SELL", req.symbol, req.quantity))
+
+
+# ---------------------------------------------------------------- orders
+@orders.get("")
+def list_orders(game_id: str = Depends(game_id_header)):
+    return svc.read(game_id, lambda s: [o.model_dump(mode="json") for o in reversed(s.orders)])
+
+
+@orders.post("")
+def place_order(req: OrderRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.place_order(req.symbol, req.side, req.type, req.quantity, req.price, req.trigger,
+                                                    req.validity, req.target, req.stoploss))
+
+
+@orders.post("/{order_id}/modify")
+def modify_order(order_id: str, req: ModifyOrderRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.modify_order(order_id, req.quantity, req.price, req.trigger))
+
+
+@orders.post("/{order_id}/cancel")
+def cancel_order(order_id: str, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.cancel_order(order_id))
+
+
+# ---------------------------------------------------------------- price alerts
+@alerts.post("")
+def add_alert(req: AlertRequest, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.add_alert(req.symbol, req.price, req.note))
+
+
+@alerts.post("/{alert_id}/cancel")
+def cancel_alert(alert_id: str, game_id: str = Depends(game_id_header)):
+    return svc.act(game_id, lambda e: e.cancel_alert(alert_id))
 
 
 # ---------------------------------------------------------------- opportunities

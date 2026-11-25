@@ -2,7 +2,8 @@ import clsx from 'clsx'
 import { Download, LogOut, Palmtree, RotateCcw, Save, ShieldAlert, Upload, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
-import { LIVE_SPEEDS, useGame, useGameState } from '../../game/GameContext'
+import { useGame, useGameState } from '../../game/GameContext'
+import { getTheme, setTheme, type Theme } from '../../game/theme'
 import { gameTime, money } from '../../game/format'
 import { api } from '../../services/api'
 import type { SaveSlot } from '../../types/game'
@@ -20,7 +21,7 @@ export function LeaveModal() {
   const blocked = s.popups.some((p) => p.blocking)
   return (
     <Modal onClose={() => setModal(null)} width="max-w-[520px]">
-      <div className="flex items-center gap-4 border-b border-line bg-gradient-to-r from-violet/15 px-5 py-4">
+      <div className="flex items-center gap-4 border-b border-line px-5 py-4">
         <Avatar id="hr" size={52} />
         <div>
           <div className="font-display text-base font-bold">Request paid leave</div>
@@ -114,7 +115,8 @@ export function SavesModal() {
 
 export function SettingsModal() {
   const s = useGameState()
-  const { setModal, speed, setSpeed, restart } = useGame()
+  const { setModal, setSpeed, restart } = useGame()
+  const [theme, setThemeState] = useState<Theme>(getTheme())
   const { user, logout } = useAuth()
   const [confirm, setConfirm] = useState(false)
   return (
@@ -122,10 +124,21 @@ export function SettingsModal() {
       <div className="border-b border-line px-5 py-4 font-display text-base font-bold">Settings</div>
       <div className="space-y-4 px-5 py-4 text-xs">
         <div>
-          <div className="label mb-1.5">Live mode speed (real seconds per game hour)</div>
+          <div className="label mb-1.5">Market speed</div>
           <div className="flex gap-2">
-            {LIVE_SPEEDS.map((sp, i) => (
-              <button key={sp.label} onClick={() => setSpeed(i)} className={clsx('chip !h-8 !px-4', speed === i && 'chip-on')}>{sp.label} · {sp.ms / 1000}s</button>
+            {s.live.speeds.map((x) => (
+              <button key={x} onClick={() => setSpeed(x)} className={clsx('chip !h-8 !px-4', s.live.speed === x && 'chip-on')}>
+                {x}x · session {Math.round(s.live.session_seconds / x / 60)} min
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-txt-mute">The market keeps moving while the game is open. At 1x one 8-hour trading day takes {Math.round(s.live.session_seconds / 60)} minutes ({s.live.seconds_per_minute * s.live.speed}s per game minute).</p>
+        </div>
+        <div>
+          <div className="label mb-1.5">Theme</div>
+          <div className="flex gap-2">
+            {(['dark', 'light'] as Theme[]).map((t) => (
+              <button key={t} onClick={() => { setTheme(t); setThemeState(t) }} className={clsx('chip !h-8 !px-4 capitalize', theme === t && 'chip-on')}>{t}</button>
             ))}
           </div>
         </div>
@@ -170,7 +183,7 @@ export function ToastHost() {
         <button key={t.id} onClick={() => dismissToast(t.id)}
           className={clsx('pointer-events-auto panel animate-fadeIn px-3 py-2 text-left',
             t.kind === 'error' ? 'border-down/50' : t.kind === 'success' ? 'border-up/50' : 'border-info/50')}>
-          <div className={clsx('text-2xs font-bold uppercase tracking-wider', t.kind === 'error' ? 'text-down' : t.kind === 'success' ? 'text-up' : 'text-info')}>{t.title}</div>
+          <div className={clsx('text-2xs font-bold', t.kind === 'error' ? 'text-down' : t.kind === 'success' ? 'text-up' : 'text-info')}>{t.title}</div>
           {t.body && <div className="mt-0.5 text-xs text-txt-dim">{t.body}</div>}
         </button>
       ))}

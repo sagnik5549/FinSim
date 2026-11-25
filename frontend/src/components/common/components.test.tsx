@@ -16,9 +16,12 @@ describe('illustrated avatars', () => {
 
 describe('sparkline', () => {
   it('colours rising series green and falling series red', () => {
+    document.documentElement.style.setProperty('--up', '38 166 154')
+    document.documentElement.style.setProperty('--down', '239 83 80')
     const up = render(<Sparkline data={[1, 2, 3]} />).container.querySelector('path[stroke]')
     const down = render(<Sparkline data={[3, 2, 1]} />).container.querySelector('path[stroke]')
-    expect(up?.getAttribute('stroke')).toBe('#26D07C')
-    expect(down?.getAttribute('stroke')).toBe('#F2495C')
+    expect(up?.getAttribute('stroke')).not.toBe(down?.getAttribute('stroke'))
+    expect(up?.getAttribute('stroke')).toBe('rgba(38,166,154,1)')
+    expect(down?.getAttribute('stroke')).toBe('rgba(239,83,80,1)')
   })
 })

@@ -15,7 +15,7 @@ export function Donut({ parts, size = 150 }: { parts: { label: string; value: nu
   let acc = 0
   return (
     <svg width={size} height={size} className="-rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#172136" strokeWidth={16} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgb(var(--ink-700))" strokeWidth={16} />
       {parts.filter((p) => p.value > 0).map((p) => {
         const len = (p.value / total) * c
         const el = <circle key={p.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={p.color} strokeWidth={16}
@@ -68,7 +68,7 @@ export default function PortfolioPage() {
   const s = useGameState()
   const sectors = Object.entries(s.risk.sector_weights).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
   const parts = [...sectors.map(([k, v], i) => ({ label: k, value: v, color: SECTOR_COLORS[i % SECTOR_COLORS.length] })),
-    { label: 'Cash', value: s.risk.cash_ratio, color: '#2A3857' }]
+    { label: 'Cash', value: s.risk.cash_ratio, color: 'rgb(var(--ink-500))' }]
   return (
     <div className="h-full overflow-y-auto p-2.5">
     <div className="grid grid-cols-12 gap-2.5 lg:grid-rows-[460px_minmax(360px,auto)]">
@@ -92,7 +92,7 @@ export default function PortfolioPage() {
         </Panel>
       </div>
       <Panel title="Portfolio vs benchmark (BHARAT 50, rebased)" icon={<TrendingUp size={13} />} className="col-span-12 h-[460px] lg:col-span-5" bodyClass="h-full p-1">
-        {s.nav_series.length > 1 ? <NavChart series={s.nav_series} start={s.nav_series[0].nav} target={s.portfolio.target_value} /> : <Empty>Advance time to build a track record.</Empty>}
+        {s.nav_series.length > 1 ? <NavChart series={s.nav_series} start={s.nav_series[0].nav} target={s.portfolio.target_value} /> : <Empty>Your track record builds hour by hour as the market trades.</Empty>}
       </Panel>
       <Panel title="Risk vs firm policy" icon={<ShieldCheck size={13} />} className="col-span-12 lg:col-span-3" bodyClass="overflow-y-auto"><RiskLimits /></Panel>
       <Panel title="Holdings" icon={<Wallet size={13} />} className="col-span-12 lg:col-span-8" bodyClass="overflow-auto"><HoldingsTable /></Panel>

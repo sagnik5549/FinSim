@@ -4,8 +4,11 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { GameProvider } from './game/GameContext'
+import { applyTheme } from './game/theme'
 import Login from './pages/Login'
 import './index.css'
+
+applyTheme()
 
 function AuthGate() {
   const { user, checking } = useAuth()

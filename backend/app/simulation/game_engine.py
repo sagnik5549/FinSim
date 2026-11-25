@@ -28,8 +28,10 @@ from app.simulation.constants import (
     CAREER_LEVELS,
     CRORE,
     MARKET_CLOSE_HOUR,
+    LIVE_MAX_CATCHUP_SECONDS,
     MARKET_OPEN_HOUR,
     PAID_LEAVE_PER_YEAR,
+    TRADING_MINUTES_PER_DAY,
     SECTORS,
     STARTING_CAPITAL,
     STARTING_REPUTATION,
@@ -44,8 +46,11 @@ from app.simulation.state import (
     Message,
     NewsItem,
     Notification,
+    Order,
     Popup,
     Portfolio,
+    PriceAlert,
+    ResearchJob,
     Thesis,
 )
 from app.simulation.time_engine import (
@@ -55,6 +60,7 @@ from app.simulation.time_engine import (
     clock_view,
     is_business_day,
     market_status,
+    minutes_to_close,
     next_business_day,
 )
 
@@ -87,6 +93,7 @@ class GameEngine:
         self.events = EventEngine(state, self.rng)
         self.time = TimeEngine(state, self)
         self.warmup = False
+        self.live_mode = False
         self.interrupts: list[str] = []
 
     # ================================================================== #
@@ -210,7 +217,8 @@ class GameEngine:
             return False
         if s.leave.is_on_leave or self.warmup:
             return True
-        return not any(p.blocking for p in s.popups)
+        # The live market never waits for a risk decision; only the board review stops the clock.
+        return not any(p.blocking and not (self.live_mode and p.type == "RISK_WARNING") for p in s.popups)
 
     def quarter_should_end(self, next_bd: date) -> bool:
         if self.warmup or self.state.flags.get("rollover"):
@@ -226,12 +234,29 @@ class GameEngine:
         ce.log_decision(s, "REVIEW", f"Q{review['quarter']} review: {review['outcome']}")
         self._telemetry("REVIEW")
 
-    def on_market_hour(self, start: datetime, end: datetime) -> None:
+    def on_hour_begin(self, start: datetime) -> None:
         s = self.state
-        s.now = end  # events and bookkeeping in this hook are stamped at the end of the hour
-        jumps: dict[str, float] = {}
-        # 1. Scheduled events inside (start, end]
-        for sch in [x for x in s.scheduled if not x.processed and start < x.time <= end]:
+        jumps: dict[str, float] = s.flags.pop("pending_jumps", {})
+        # Spontaneous events break at the top of the hour; prices react over the following minutes.
+        new_events = self.events.hourly_random(jumps)
+        drift, vboost, mboost = self.events.active_effects()
+        me.begin_hour(s, start, drift, vboost, mboost, jumps)
+        if self.warmup:
+            return
+        for ev in new_events:
+            if ev.severity >= 3:
+                held = [x for x in ev.affected_symbols if x in s.portfolio.holdings]
+                tag = " (you hold this)" if held and ev.category == "company" else ""
+                self.notify("BREAKING", ev.title, ev.narrative[:140] + tag)
+
+    def _process_due(self) -> None:
+        """Release scheduled items (results, data, policy, story chains) whose time has come."""
+        s = self.state
+        due = [x for x in s.scheduled if not x.processed and x.time <= s.now]
+        if not due:
+            return
+        jumps = s.hour.jumps if s.hour is not None else s.flags.setdefault("pending_jumps", {})
+        for sch in due:
             if sch.kind == "CEO_MEETING":
                 sch.processed = True
                 if not self.warmup:
@@ -243,24 +268,41 @@ class GameEngine:
                 if sym in s.portfolio.holdings:
                     self.notify("BREAKING", f"Results: {s.stocks[sym].name}",
                                 f"{res['outcome'].replace('_', ' ')} — you hold this stock.")
-        # 2. Spontaneous events
-        new_events = self.events.hourly_random(jumps)
-        # 3. Active event dynamics
-        drift, vboost, mboost = self.events.active_effects()
-        # 4. Price simulation
-        rets = me.simulate_hour(s, self.rng, start, jumps, drift, vboost, mboost)
+
+    def _minute_history_wanted(self) -> bool:
+        # Warm-up only keeps the last two sessions of 1-minute bars (enough for intraday charts).
+        if not self.warmup:
+            return True
+        return business_days_between(self.state.now.date(), GAME_START.date()) <= 2
+
+    def on_minutes(self, k: int) -> None:
+        """Simulate k minutes, stopping at each scheduled release so it lands on time."""
+        s = self.state
+        end = s.now + timedelta(minutes=k)
+        record = self._minute_history_wanted()
+        while s.now < end:
+            self._process_due()
+            nxt = min((x.time for x in s.scheduled if not x.processed and s.now < x.time < end), default=end)
+            m = max(1, int((nxt - s.now) / timedelta(minutes=1)))
+            t0 = s.now
+            bars = me.step_minutes(s, self.rng, m, record)
+            s.now = t0 + timedelta(minutes=m)
+            if not self.warmup:
+                self._check_resting(bars, t0)
+        if not self.warmup:
+            self._finish_research()
+
+    def on_hour_end(self, start: datetime, end: datetime) -> None:
+        s = self.state
+        self._process_due()
+        rets = me.end_hour(s, self.rng)
         if self.warmup:
             return
-        self._post_hour(new_events, rets)
+        self._post_hour(rets)
 
-    def _post_hour(self, new_events, rets: dict[str, float]) -> None:
+    def _post_hour(self, rets: dict[str, float]) -> None:
         s = self.state
         pe.record_hour(s)
-        for ev in new_events:
-            if ev.severity >= 3:
-                held = [x for x in ev.affected_symbols if x in s.portfolio.holdings]
-                tag = " (you hold this)" if held and ev.category == "company" else ""
-                self.notify("BREAKING", ev.title, ev.narrative[:140] + tag)
         # Opportunities
         for o in opportunity_engine.expire(s):
             self.notify("OPPORTUNITY", "Opportunity expired", f"Block deal in {o.symbol} is no longer available.")
@@ -396,6 +438,7 @@ class GameEngine:
         if self.warmup:
             me.close_session(s)
             return
+        self._expire_day_orders()
         p = s.portfolio
         close_nav = pe.nav(s)
         bench_open = s.flags.get("day_bench_open", s.indices["BH50"].prev_close)
@@ -867,21 +910,20 @@ class GameEngine:
             raise ActionError("INVALID_DEPTH", "Depth must be QUICK or DEEP.")
         need = research_engine.RESEARCH_HOURS[depth]
         s = self.state
-        if clock_view(s).hours_to_close < need:
-            raise ActionError("NOT_ENOUGH_TIME", f"A {depth.lower()} review needs {need}h; only "
-                                                 f"{clock_view(s).hours_to_close}h left before the close.")
+        left = minutes_to_close(s.now)
+        if left < need * 60:
+            raise ActionError("NOT_ENOUGH_TIME", f"A {depth.lower()} review takes {need}h; only "
+                                                 f"{left // 60}h {left % 60:02d}m left before the close.")
+        if any(j.symbol == symbol for j in s.research_jobs):
+            raise ActionError("RESEARCH_PENDING", f"The desk is already working on {symbol}.")
         self._begin_action()
-        done = 0
-        while done < need and self.can_advance():
-            done += self.time.advance_hour()
-        s.stats.hours_worked += done
-        report = research_engine.run_research(s, self.rng, symbol, depth)
-        ce.add_xp(s, 15 if depth == "QUICK" else 35)
-        self.notify("MARKET_ALERT", f"Research ready: {s.stocks[symbol].name}",
-                    f"{report.rating} · est. fair value ₹{report.est_fair_value:,.0f}")
+        # The analysts work while the market keeps moving; the report lands when they are done.
+        job = ResearchJob(id=s.next_id("RJ"), symbol=symbol, depth=depth, started=s.now,
+                          ready_at=s.now + timedelta(hours=need))
+        s.research_jobs.append(job)
         self._telemetry("RESEARCH")
         self.save_rng()
-        return {"report": report.model_dump(mode="json"), "hours_used": done, "interrupted_by": self.interrupts}
+        return {"job": job.model_dump(mode="json"), "interrupted_by": self.interrupts}
 
     def record_thesis(self, symbol: str, stance: str, text: str) -> dict:
         s = self.state
@@ -1063,6 +1105,8 @@ class GameEngine:
         if p.type == "RISK_WARNING":
             raise ActionError("DECISION_REQUIRED", "Choose how to handle the risk warning.")
         s.popups.remove(p)
+        if p.type == "REVIEW":
+            s.live.anchor = None  # the clock restarts from now, without catching up the review time
         if p.type == "REVIEW" and s.career.status == "REVIEW":
             self._next_quarter()
         return {"acknowledged": popup_id}
@@ -1114,3 +1158,359 @@ class GameEngine:
             if ids is None or it.id in ids:
                 it.read = True
         return {"ok": True}
+
+    # ================================================================== #
+    # Live clock
+    # ================================================================== #
+    def sync_live(self, wall: float, session_seconds: float, closed_seconds: float) -> bool:
+        """Advance the market by the real time elapsed since the last sync.
+
+        At speed 1 one game minute passes every `session_seconds / 480` real seconds. When the
+        session is over the market stays closed for `closed_seconds / speed` and then opens the
+        next business day. Returns True when the state changed and must be saved."""
+        s = self.state
+        lv = s.live
+        speed = max(1, lv.speed)
+        if lv.anchor is None:
+            lv.anchor = wall
+            return True
+        changed = False
+        elapsed = wall - lv.anchor
+        if elapsed > LIVE_MAX_CATCHUP_SECONDS or elapsed < 0:
+            # Nobody was at the desk (tab closed, laptop asleep, a save loaded): resume from now
+            # instead of fast-forwarding through time nobody watched.
+            lv.anchor = wall
+            return True
+        if s.career.status != "ACTIVE" or s.leave.is_on_leave:
+            lv.anchor = wall
+            return changed
+        self.live_mode = True
+        try:
+            if not self.can_advance():
+                lv.anchor = wall
+                return changed
+            status = market_status(s.now)
+            if status == "OPEN":
+                per_minute = session_seconds / TRADING_MINUTES_PER_DAY / speed
+                n = int(elapsed // per_minute)
+                if n <= 0:
+                    return changed
+                self.interrupts = []
+                s.stats.hours_worked += self.time.advance_minutes(n)
+                lv.anchor += n * per_minute
+                if market_status(s.now) != "OPEN":
+                    lv.anchor = wall  # the closing bell starts the between-sessions pause
+            else:
+                if elapsed < closed_seconds / speed:
+                    return changed
+                self.interrupts = []
+                if status == "PRE_MARKET":
+                    self.time.advance_hour()
+                else:
+                    self.time.advance_to_next_business_day()
+                lv.anchor = wall
+            self.save_rng()
+            return True
+        finally:
+            self.live_mode = False
+
+    def live_view(self, wall: float, session_seconds: float, closed_seconds: float, speeds: list[int]) -> dict:
+        s = self.state
+        speed = max(1, s.live.speed)
+        per_minute = session_seconds / TRADING_MINUTES_PER_DAY / speed
+        since = wall - s.live.anchor if s.live.anchor is not None else 0.0
+        status = market_status(s.now)
+        if status == "OPEN":
+            wait = per_minute - since
+        else:
+            wait = closed_seconds / speed - since
+        return {"speed": speed, "speeds": speeds, "seconds_per_minute": round(per_minute, 3),
+                "next_tick_in": round(max(0.25, wait), 2), "running": s.career.status == "ACTIVE",
+                "session_seconds": session_seconds}
+
+    def set_speed(self, speed: int, speeds: list[int]) -> dict:
+        if speed not in speeds:
+            raise ActionError("INVALID_SPEED", f"Speed must be one of {', '.join(f'{x}x' for x in speeds)}.")
+        self.state.live.speed = speed
+        return {"speed": speed}
+
+    # ================================================================== #
+    # Orders: market, limit, stop-loss (SL) and stop-loss market (SL-M), with
+    # optional bracket legs (target + stop-loss, one cancels the other)
+    # ================================================================== #
+    def _tx_stats(self, tx) -> None:
+        s = self.state
+        s.stats.trades += 1
+        if tx.side == "BUY":
+            s.stats.buys += 1
+        else:
+            s.stats.sells += 1
+            if tx.realized_pnl > 0:
+                ce.add_xp(s, min(200, int(tx.realized_pnl / 1_000_000)))
+
+    def place_order(self, symbol: str, side: str, otype: str, qty: int, price: Optional[float] = None,
+                    trigger: Optional[float] = None, validity: str = "DAY", target: Optional[float] = None,
+                    stoploss: Optional[float] = None) -> dict:
+        self._require_active()
+        s = self.state
+        symbol, side, otype, validity = (symbol or "").upper(), (side or "").upper(), (otype or "").upper(), (validity or "DAY").upper()
+        if symbol not in s.stocks:
+            raise ActionError("INVALID_SYMBOL", f"Unknown symbol '{symbol}'.")
+        if side not in ("BUY", "SELL"):
+            raise ActionError("INVALID_SIDE", "Side must be BUY or SELL.")
+        if otype not in ("MARKET", "LIMIT", "SL", "SL-M"):
+            raise ActionError("INVALID_ORDER_TYPE", "Order type must be MARKET, LIMIT, SL or SL-M.")
+        if validity not in ("DAY", "GTC"):
+            raise ActionError("INVALID_VALIDITY", "Validity must be DAY or GTC.")
+        if not isinstance(qty, int) or isinstance(qty, bool) or qty <= 0:
+            raise ActionError("INVALID_QUANTITY", "Quantity must be a positive whole number.")
+        ltp = s.stocks[symbol].price
+        ref = price if otype in ("LIMIT", "SL") and price else trigger if trigger else ltp
+        if otype in ("LIMIT", "SL") and not (price and price > 0):
+            raise ActionError("INVALID_PRICE", "Enter a limit price.")
+        if otype in ("SL", "SL-M") and not (trigger and trigger > 0):
+            raise ActionError("INVALID_TRIGGER", "Enter a trigger price.")
+        for v, label in ((price, "Limit price"), (trigger, "Trigger price")):
+            if v and not (0.8 * ltp <= v <= 1.2 * ltp):
+                raise ActionError("PRICE_OUT_OF_RANGE", f"{label} must be within 20% of the last traded price (₹{ltp:,.2f}).")
+        if otype in ("SL", "SL-M"):
+            if side == "BUY" and trigger <= ltp:
+                raise ActionError("INVALID_TRIGGER", "A buy stop's trigger must be above the last traded price.")
+            if side == "SELL" and trigger >= ltp:
+                raise ActionError("INVALID_TRIGGER", "A sell stop's trigger must be below the last traded price.")
+            if otype == "SL" and side == "BUY" and price < trigger:
+                raise ActionError("INVALID_PRICE", "For a buy stop-limit the limit price must be at or above the trigger.")
+            if otype == "SL" and side == "SELL" and price > trigger:
+                raise ActionError("INVALID_PRICE", "For a sell stop-limit the limit price must be at or below the trigger.")
+        if side == "SELL":
+            h = s.portfolio.holdings.get(symbol)
+            if not h:
+                raise ActionError("NO_POSITION", f"You do not hold any {symbol}. Short selling is not allowed by the mandate.")
+            if qty > h.qty:
+                raise ActionError("INSUFFICIENT_SHARES", f"Cannot sell {qty:,} shares; you only hold {h.qty:,}.")
+            target = stoploss = None
+        if target is not None and target <= ref:
+            raise ActionError("INVALID_TARGET", "The target must be above the entry price.")
+        if stoploss is not None and stoploss >= ref:
+            raise ActionError("INVALID_STOPLOSS", "The stop-loss must be below the entry price.")
+        now = s.now
+        order = Order(id=s.next_id("ORD"), symbol=symbol, side=side, type=otype, qty=qty,
+                      price=round(price, 2) if price and otype in ("LIMIT", "SL") else None,
+                      trigger=round(trigger, 2) if trigger and otype in ("SL", "SL-M") else None,
+                      validity=validity, created=now, updated=now,
+                      target=round(target, 2) if target else None, stoploss=round(stoploss, 2) if stoploss else None)
+        if otype == "MARKET":
+            res = self.trade(side, symbol, qty)
+            tx = s.transactions[-1]
+            order.status, order.fill_price, order.tx_id = "EXECUTED", tx.price, tx.id
+            self._add_order(order)
+            self._bracket(order)
+            return {"order": order.model_dump(mode="json"), "transaction": res["transaction"],
+                    "interrupted_by": res["interrupted_by"]}
+        self._begin_action()
+        self._add_order(order)
+        # A limit priced through the market fills straight away at the market (never worse than the limit).
+        if otype == "LIMIT" and market_status(now) == "OPEN" and (
+                (side == "BUY" and price >= ltp) or (side == "SELL" and price <= ltp)):
+            px = min(price, ltp * (1 + pe._impact(s, symbol, qty))) if side == "BUY" else max(price, ltp * (1 - pe._impact(s, symbol, qty)))
+            self._fill(order, px)
+        self.save_rng()
+        return {"order": order.model_dump(mode="json"), "interrupted_by": self.interrupts}
+
+    def _add_order(self, order: Order) -> None:
+        s = self.state
+        s.orders.append(order)
+        if len(s.orders) > 250:
+            live = [o for o in s.orders if o.status in ("OPEN", "TRIGGERED")]
+            done = [o for o in s.orders if o.status not in ("OPEN", "TRIGGERED")][-200:]
+            s.orders = sorted(live + done, key=lambda o: o.created)
+
+    def _bracket(self, parent: Order) -> None:
+        """After a bracketed BUY fills, rest a target (sell limit) and a stop (sell SL-M) on the filled quantity."""
+        s = self.state
+        if parent.side != "BUY" or parent.status != "EXECUTED" or not (parent.target or parent.stoploss):
+            return
+        group = s.next_id("OCO") if parent.target and parent.stoploss else None
+        if parent.target:
+            self._add_order(Order(id=s.next_id("ORD"), symbol=parent.symbol, side="SELL", type="LIMIT", qty=parent.qty,
+                                  price=parent.target, validity="GTC", created=s.now, updated=s.now, tag="TARGET",
+                                  group=group))
+        if parent.stoploss:
+            self._add_order(Order(id=s.next_id("ORD"), symbol=parent.symbol, side="SELL", type="SL-M", qty=parent.qty,
+                                  trigger=parent.stoploss, validity="GTC", created=s.now, updated=s.now, tag="STOPLOSS",
+                                  group=group))
+
+    def _fill(self, o: Order, px: float) -> bool:
+        s = self.state
+        px = round(px, 2)
+        try:
+            if o.side == "BUY":
+                tx = pe.execute_buy(s, o.symbol, o.qty, source="ORDER", price_override=px)
+            else:
+                h = s.portfolio.holdings.get(o.symbol)
+                if h and o.tag in ("TARGET", "STOPLOSS") and h.qty < o.qty:
+                    o.qty = h.qty  # part of the position was sold by hand: close what is left
+                if o.qty <= 0:
+                    raise pe.TradeError("NO_POSITION", f"You no longer hold {o.symbol}.")
+                tx = pe.execute_sell(s, o.symbol, o.qty, source="ORDER", price_override=px)
+        except pe.TradeError as e:
+            o.status, o.reason, o.updated = "REJECTED", e.message, s.now
+            self.notify("TRADE", "Order rejected", f"{o.side} {o.qty:,} {o.symbol}: {e.message}")
+            if o.group:
+                self._cancel_group(o)
+            return False
+        o.status, o.fill_price, o.tx_id, o.updated = "EXECUTED", tx.price, tx.id, s.now
+        self._tx_stats(tx)
+        label = {"TARGET": "Target hit", "STOPLOSS": "Stop-loss hit"}.get(o.tag, f"{o.type} order executed")
+        self.notify("TRADE", label, f"{tx.side} {tx.qty:,} {o.symbol} @ ₹{tx.price:,.2f} · {self._cr(tx.value)}"
+                    + (f" · P&L {self._cr(tx.realized_pnl)}" if tx.side == "SELL" else ""))
+        if o.group:
+            self._cancel_group(o)
+        self._bracket(o)
+        self._compliance_check(tx)
+        self._risk_check()
+        return True
+
+    def _cancel_group(self, o: Order) -> None:
+        for other in self.state.orders:
+            if other.group == o.group and other.id != o.id and other.status in ("OPEN", "TRIGGERED"):
+                other.status, other.reason, other.updated = "CANCELLED", "Other leg of the bracket closed", self.state.now
+
+    @staticmethod
+    def _first(mask: np.ndarray, start: int = 0) -> Optional[int]:
+        idx = np.flatnonzero(mask[start:])
+        return int(idx[0]) + start if len(idx) else None
+
+    def _order_fire(self, o: Order, b: np.ndarray) -> tuple[Optional[int], float]:
+        """First minute (row of b = [open, high, low, close]) at which a resting order fills, and its price."""
+        op, hi, lo = b[:, 0], b[:, 1], b[:, 2]
+        buy = o.side == "BUY"
+        start = 0
+        if o.type == "SL-M":
+            i = self._first(hi >= o.trigger) if buy else self._first(lo <= o.trigger)
+            if i is None:
+                return None, 0.0
+            slip = pe._impact(self.state, o.symbol, o.qty)
+            px = max(o.trigger, op[i]) * (1 + slip) if buy else min(o.trigger, op[i]) * (1 - slip)
+            return i, float(px)
+        if o.type == "SL" and o.status == "OPEN":
+            i = self._first(hi >= o.trigger) if buy else self._first(lo <= o.trigger)
+            if i is None:
+                return None, 0.0
+            o.status, o.updated = "TRIGGERED", self.state.now
+            start = i
+        # LIMIT, or a triggered stop-limit resting as a limit
+        j = self._first(lo <= o.price, start) if buy else self._first(hi >= o.price, start)
+        if j is None:
+            return None, 0.0
+        ref = op[j] if j > start or o.type == "LIMIT" else (max(op[j], o.trigger) if buy else min(op[j], o.trigger))
+        return j, float(min(o.price, ref) if buy else max(o.price, ref))
+
+    def _check_resting(self, bars: dict[str, np.ndarray], t0: datetime) -> None:
+        s = self.state
+        orders = [o for o in s.orders if o.status in ("OPEN", "TRIGGERED")]
+        alerts = [a for a in s.alerts if a.status == "ACTIVE"]
+        if not orders and not alerts:
+            return
+        fires = []
+        for o in orders:
+            b = bars.get(o.symbol)
+            if b is not None:
+                i, px = self._order_fire(o, b)
+                if i is not None:
+                    fires.append((i, o.created, o, px))
+        for i, _, o, px in sorted(fires, key=lambda f: (f[0], f[1])):
+            if o.status in ("OPEN", "TRIGGERED"):  # a bracket sibling may have cancelled it
+                self._fill(o, px)
+        for a in alerts:
+            b = bars.get(a.symbol)
+            if b is None:
+                continue
+            hit = self._first(b[:, 1] >= a.price) if a.op == "ABOVE" else self._first(b[:, 2] <= a.price)
+            if hit is not None:
+                a.status, a.triggered_at = "TRIGGERED", t0 + timedelta(minutes=hit + 1)
+                name = s.stocks[a.symbol].name if a.symbol in s.stocks else a.symbol
+                self.notify("PRICE_ALERT", f"Alert: {a.symbol} {'above' if a.op == 'ABOVE' else 'below'} ₹{a.price:,.2f}",
+                            f"{name} traded at ₹{float(b[hit, 3]):,.2f}." + (f" Note: {a.note}" if a.note else ""))
+
+    def modify_order(self, order_id: str, qty: Optional[int] = None, price: Optional[float] = None,
+                     trigger: Optional[float] = None) -> dict:
+        self._require_active()
+        s = self.state
+        o = next((x for x in s.orders if x.id == order_id), None)
+        if not o or o.status not in ("OPEN", "TRIGGERED"):
+            raise ActionError("INVALID_ORDER", "That order is no longer open.")
+        ltp = s.stocks[o.symbol].price
+        if qty is not None:
+            if not isinstance(qty, int) or qty <= 0:
+                raise ActionError("INVALID_QUANTITY", "Quantity must be a positive whole number.")
+            o.qty = qty
+        for v, label in ((price, "Limit price"), (trigger, "Trigger price")):
+            if v is not None and not (0.8 * ltp <= v <= 1.2 * ltp):
+                raise ActionError("PRICE_OUT_OF_RANGE", f"{label} must be within 20% of the last traded price (₹{ltp:,.2f}).")
+        if price is not None:
+            if o.type not in ("LIMIT", "SL"):
+                raise ActionError("INVALID_PRICE", "This order has no limit price.")
+            o.price = round(price, 2)
+        if trigger is not None:
+            if o.type not in ("SL", "SL-M"):
+                raise ActionError("INVALID_TRIGGER", "This order has no trigger price.")
+            if o.status == "OPEN" and ((o.side == "BUY" and trigger <= ltp) or (o.side == "SELL" and trigger >= ltp)):
+                raise ActionError("INVALID_TRIGGER", "That trigger would fire immediately. Use a market order instead.")
+            o.trigger = round(trigger, 2)
+        o.updated = s.now
+        if o.type == "LIMIT" and market_status(s.now) == "OPEN" and (
+                (o.side == "BUY" and o.price >= ltp) or (o.side == "SELL" and o.price <= ltp)):
+            self._fill(o, ltp)
+        return {"order": o.model_dump(mode="json")}
+
+    def cancel_order(self, order_id: str) -> dict:
+        s = self.state
+        o = next((x for x in s.orders if x.id == order_id), None)
+        if not o or o.status not in ("OPEN", "TRIGGERED"):
+            raise ActionError("INVALID_ORDER", "That order is no longer open.")
+        o.status, o.reason, o.updated = "CANCELLED", "Cancelled by you", s.now
+        return {"order": o.model_dump(mode="json")}
+
+    def _expire_day_orders(self) -> None:
+        s = self.state
+        for o in s.orders:
+            if o.status in ("OPEN", "TRIGGERED") and o.validity == "DAY":
+                o.status, o.reason, o.updated = "EXPIRED", "Day order expired at the close", s.now
+
+    # ---------------------------------------------------------------- alerts
+    def add_alert(self, symbol: str, price: float, note: str = "") -> dict:
+        s = self.state
+        symbol = (symbol or "").upper()
+        if symbol not in s.stocks and symbol not in s.indices:
+            raise ActionError("INVALID_SYMBOL", f"Unknown symbol '{symbol}'.")
+        if not price or price <= 0:
+            raise ActionError("INVALID_PRICE", "Enter an alert price.")
+        ltp = s.stocks[symbol].price if symbol in s.stocks else s.indices[symbol].value
+        if abs(price / ltp - 1) < 1e-6:
+            raise ActionError("INVALID_PRICE", "The alert price equals the current price.")
+        active = [a for a in s.alerts if a.status == "ACTIVE"]
+        if len(active) >= 50:
+            raise ActionError("TOO_MANY_ALERTS", "You can keep up to 50 active alerts.")
+        a = PriceAlert(id=s.next_id("ALR"), symbol=symbol, op="ABOVE" if price > ltp else "BELOW", price=round(price, 2),
+                       created=s.now, note=(note or "")[:120])
+        s.alerts.append(a)
+        s.alerts = [x for x in s.alerts if x.status == "ACTIVE"] + [x for x in s.alerts if x.status != "ACTIVE"][-50:]
+        return {"alert": a.model_dump(mode="json")}
+
+    def cancel_alert(self, alert_id: str) -> dict:
+        a = next((x for x in self.state.alerts if x.id == alert_id), None)
+        if not a or a.status != "ACTIVE":
+            raise ActionError("INVALID_ALERT", "That alert is not active.")
+        a.status = "CANCELLED"
+        return {"alert": a.model_dump(mode="json")}
+
+    # ---------------------------------------------------------------- research desk
+    def _finish_research(self) -> None:
+        s = self.state
+        for job in [j for j in s.research_jobs if s.now >= j.ready_at]:
+            s.research_jobs.remove(job)
+            report = research_engine.run_research(s, self.rng, job.symbol, job.depth)
+            ce.add_xp(s, 15 if job.depth == "QUICK" else 35)
+            self.notify("RESEARCH", f"Research ready: {s.stocks[job.symbol].name}",
+                        f"{report.rating} · est. fair value ₹{report.est_fair_value:,.0f}")

@@ -47,7 +47,7 @@ function DailyReport({ popup }: { popup: Popup }) {
   const ack = useAck(popup)
   return (
     <Modal onClose={ack} width="max-w-[460px]">
-      <div className="border-b border-line bg-gradient-to-r from-info/10 px-5 py-3">
+      <div className="border-b border-line px-5 py-3">
         <div className="label">End of day · {shortDate(d.date)}</div>
         <div className="font-display text-lg font-bold">Market summary</div>
       </div>
@@ -70,7 +70,7 @@ function DailyReport({ popup }: { popup: Popup }) {
         {d.headlines?.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-2xs text-txt-dim">{d.headlines.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul>
         )}
-        <Button variant="primary" className="mt-3 w-full" onClick={ack}>CONTINUE <ArrowRight size={14} /></Button>
+        <Button variant="primary" className="mt-3 w-full" onClick={ack}>Continue <ArrowRight size={14} /></Button>
       </div>
     </Modal>
   )
@@ -82,7 +82,7 @@ function WeekendReport({ popup }: { popup: Popup }) {
   const sectors = Object.entries(d.sectors as Record<string, number>).sort((a, b) => b[1] - a[1])
   return (
     <Modal onClose={ack} width="max-w-[520px]">
-      <div className="flex items-center gap-3 border-b border-line bg-gradient-to-r from-violet/15 px-5 py-3">
+      <div className="flex items-center gap-3 border-b border-line px-5 py-3">
         <Sunrise className="text-violet" size={22} />
         <div>
           <div className="label">{shortDate(d.from)} → {shortDate(d.to)}</div>
@@ -117,7 +117,7 @@ function WeekendReport({ popup }: { popup: Popup }) {
           <div className="rounded bg-ink-900 py-2"><div className="label">Change</div><div className={clsx('num text-sm font-bold', toneClass(d.change))}>{money(d.change, { signed: true })}</div></div>
         </div>
         <div className="mt-2 text-xs text-txt-mute">Risk: <span className={d.risk_level === 'HIGH' || d.risk_level === 'CRITICAL' ? 'font-bold text-down' : 'text-txt'}>{d.risk_level}</span></div>
-        <Button variant="primary" className="mt-3 w-full" onClick={ack}>START THE WEEK <ArrowRight size={14} /></Button>
+        <Button variant="primary" className="mt-3 w-full" onClick={ack}>Start the week <ArrowRight size={14} /></Button>
       </div>
     </Modal>
   )
@@ -129,10 +129,10 @@ function LeaveReport({ popup }: { popup: Popup }) {
   const change = d.portfolio_after - d.portfolio_before
   return (
     <Modal onClose={ack} width="max-w-[500px]">
-      <div className="flex items-center gap-4 border-b border-line bg-gradient-to-r from-violet/15 px-5 py-4">
+      <div className="flex items-center gap-4 border-b border-line px-5 py-4">
         <Palmtree className="text-violet" size={26} />
         <div>
-          <div className="font-display text-xl font-bold tracking-wide">WELCOME BACK</div>
+          <div className="font-display text-xl font-bold tracking-wide">Welcome back</div>
           <div className="text-xs text-txt-dim">{shortDate(d.from)} → {shortDate(d.to)}</div>
         </div>
       </div>
@@ -147,16 +147,16 @@ function LeaveReport({ popup }: { popup: Popup }) {
         <Line k="Leave remaining" v={`${d.leave_remaining} days`} />
         {d.headlines.length > 0 && <ul className="mt-2 space-y-0.5 text-2xs text-txt-dim">{d.headlines.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul>}
         {d.team_actions.length > 0 && <ul className="mt-2 space-y-0.5 rounded border border-line bg-ink-900 p-2 text-2xs text-txt-dim">{d.team_actions.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul>}
-        <Button variant="primary" className="mt-3 w-full" onClick={ack}>BACK TO THE DESK <ArrowRight size={14} /></Button>
+        <Button variant="primary" className="mt-3 w-full" onClick={ack}>Back to the desk <ArrowRight size={14} /></Button>
       </div>
     </Modal>
   )
 }
 
 const OPTION_TEXT: Record<string, { label: string; sub: string; variant: 'primary' | 'warn' | 'subtle' }> = {
-  REDUCE_EXPOSURE: { label: 'REDUCE EXPOSURE', sub: 'Sell down to policy now', variant: 'primary' },
-  REQUEST_EXCEPTION: { label: 'REQUEST EXCEPTION', sub: 'Risk Manager decides · 7 days', variant: 'warn' },
-  IGNORE: { label: 'IGNORE', sub: 'Goes on your record', variant: 'subtle' },
+  REDUCE_EXPOSURE: { label: 'Reduce exposure', sub: 'Sell down to policy now', variant: 'primary' },
+  REQUEST_EXCEPTION: { label: 'Request an exception', sub: 'Risk Manager decides · 7 days', variant: 'warn' },
+  IGNORE: { label: 'Ignore', sub: 'Goes on your record', variant: 'subtle' },
 }
 
 function RiskWarningModal({ popup }: { popup: Popup }) {
@@ -166,11 +166,11 @@ function RiskWarningModal({ popup }: { popup: Popup }) {
   const rm = s.team.find((t) => t.id === 'risk_manager')
   const closed = s.clock.market_status !== 'OPEN' && !(s.clock.working_day && s.clock.game_hour === 17)
   return (
-    <Modal closable={false} width="max-w-[520px]" className="border-down/50 shadow-glowDown">
-      <div className="flex items-center gap-3 border-b border-down/30 bg-gradient-to-r from-down/20 px-5 py-3">
+    <Modal closable={false} width="max-w-[520px]" className="border-down/50">
+      <div className="flex items-center gap-3 border-b border-down/30 px-5 py-3">
         <ShieldAlert className="text-down" size={24} />
         <div>
-          <div className="font-display text-lg font-bold tracking-[0.18em] text-down">RISK WARNING</div>
+          <div className="font-display text-lg font-bold text-down">Risk warning</div>
           <div className="text-2xs text-txt-dim">{d.during_leave ? 'Raised while you were on leave' : 'Firm risk policy breached'}</div>
         </div>
       </div>
@@ -249,11 +249,11 @@ function DialogueModal({ popup }: { popup: Popup }) {
 }
 
 const OUTCOME_STYLE: Record<string, { color: string; ring: string; icon: JSX.Element }> = {
-  PROMOTED: { color: 'text-gold', ring: 'border-gold shadow-glowGold', icon: <TrendingUp size={18} /> },
-  'TARGET ACHIEVED': { color: 'text-up', ring: 'border-up shadow-glowUp', icon: <TrendingUp size={18} /> },
+  PROMOTED: { color: 'text-gold', ring: 'border-gold', icon: <TrendingUp size={18} /> },
+  'TARGET ACHIEVED': { color: 'text-up', ring: 'border-up', icon: <TrendingUp size={18} /> },
   WARNING: { color: 'text-warn', ring: 'border-warn', icon: <AlertTriangle size={18} /> },
-  FAILED: { color: 'text-down', ring: 'border-down shadow-glowDown', icon: <TrendingDown size={18} /> },
-  TERMINATED: { color: 'text-down', ring: 'border-down shadow-glowDown', icon: <TrendingDown size={18} /> },
+  FAILED: { color: 'text-down', ring: 'border-down', icon: <TrendingDown size={18} /> },
+  TERMINATED: { color: 'text-down', ring: 'border-down', icon: <TrendingDown size={18} /> },
 }
 
 function QuarterlyReview({ popup }: { popup: Popup }) {
@@ -273,8 +273,8 @@ function QuarterlyReview({ popup }: { popup: Popup }) {
     <div className="fixed inset-0 z-50 overflow-y-auto bg-ink-950/95 backdrop-blur-sm">
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="text-center animate-rise">
-          <div className="label tracking-[0.3em]">{s.career.firm} · Board room</div>
-          <h1 className="mt-1 font-display text-3xl font-bold tracking-[0.12em]">QUARTERLY REVIEW</h1>
+          <div className="label">{s.career.firm} · Board room</div>
+          <h1 className="mt-1 font-display text-3xl font-bold">Quarterly review</h1>
           <div className="mt-1 text-xs text-txt-mute">Quarter {r.quarter} · {r.title}</div>
         </div>
 
@@ -283,7 +283,7 @@ function QuarterlyReview({ popup }: { popup: Popup }) {
             <div key={id} className="panel flex flex-col items-center p-4 text-center animate-rise" style={{ animationDelay: `${0.15 * i}s` }}>
               <Avatar id={id} size={92} />
               <div className="mt-2 text-sm font-bold">{team[id]?.name}</div>
-              <div className="text-2xs uppercase tracking-wider text-txt-mute">{team[id]?.role}</div>
+              <div className="text-2xs text-txt-mute">{team[id]?.role}</div>
               <p className="mt-2 text-xs leading-relaxed text-txt-dim">"{text}"</p>
             </div>
           ))}
@@ -327,7 +327,7 @@ function QuarterlyReview({ popup }: { popup: Popup }) {
 
         <div className="mt-8 flex flex-col items-center">
           {stage >= 1 && (
-            <div className={clsx('flex items-center gap-3 rounded-lg border-4 px-8 py-3 font-display text-3xl font-bold tracking-[0.2em] animate-stamp', st.color, st.ring)}>
+            <div className={clsx('flex items-center gap-3 rounded-lg border-4 px-8 py-3 font-display text-3xl font-bold animate-stamp', st.color, st.ring)}>
               {st.icon}{r.outcome}
             </div>
           )}
@@ -336,8 +336,8 @@ function QuarterlyReview({ popup }: { popup: Popup }) {
               {r.ladder_note && <div className="text-sm font-semibold text-down">{r.ladder_note}</div>}
               {r.next_level && <div className="text-sm text-gold">New role: <b>{r.next_level}</b> · unlocks {r.unlocks.join(', ')}</div>}
               {terminated
-                ? <Button variant="gold" size="lg" onClick={restart}>START NEW CAREER</Button>
-                : <Button variant="primary" size="lg" disabled={busy} onClick={() => run(() => api.ackPopup(popup.id))}>BEGIN NEXT QUARTER <ArrowRight size={16} /></Button>}
+                ? <Button variant="gold" size="lg" onClick={restart}>Start a new career</Button>
+                : <Button variant="primary" size="lg" disabled={busy} onClick={() => run(() => api.ackPopup(popup.id))}>Begin the next quarter <ArrowRight size={16} /></Button>}
               <Badge tone={r.warning_level >= 2 ? 'down' : r.warning_level === 1 ? 'warn' : 'neutral'}>
                 Warning status: {['Clean record', 'Warning', 'Final warning', 'Terminated'][Math.min(3, r.warning_level)]}
               </Badge>

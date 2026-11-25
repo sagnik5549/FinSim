@@ -358,10 +358,74 @@ class DirectorState(BaseModel):
     model_source: str = "rules"
 
 
-class TickPaths(BaseModel):
-    """Intra-hour 5-minute path of the most recent simulated hour (for live chart replay)."""
-    t: Optional[datetime] = None
-    paths: dict[str, list[float]] = Field(default_factory=dict)
+class HourSession(BaseModel):
+    """The trading hour currently in progress (the market moves one minute at a time).
+
+    Parameters are drawn when the hour begins; `agg` holds each symbol's running
+    [open, high, low, volume] for the hour (the close is the live price)."""
+    start: datetime
+    minute: int = 0
+    drift: dict[str, float] = Field(default_factory=dict)  # per-stock daily log drift (incl. events)
+    vol: dict[str, float] = Field(default_factory=dict)  # per-stock idiosyncratic daily vol
+    vol_boost: dict[str, float] = Field(default_factory=dict)
+    sector_drift: dict[str, float] = Field(default_factory=dict)
+    mkt_drift: float = 0.0
+    mkt_vol: float = 0.0
+    mkt_sum: float = 0.0
+    jumps: dict[str, float] = Field(default_factory=dict)  # applied on the next simulated minute
+    agg: dict[str, list[float]] = Field(default_factory=dict)
+
+
+class RecentMinutes(BaseModel):
+    """Ring buffer of the last few minute bars for every symbol (sent to the browser each tick)."""
+    t: list[str] = Field(default_factory=list)
+    bars: dict[str, list[list[float]]] = Field(default_factory=dict)  # symbol -> [[o,h,l,c,v], ...]
+
+
+class LiveClock(BaseModel):
+    """Wall-clock pacing: the market keeps moving in real time at the chosen speed."""
+    speed: int = 1
+    anchor: Optional[float] = None  # wall-clock seconds already accounted for
+
+
+class Order(BaseModel):
+    id: str
+    symbol: str
+    side: str  # BUY / SELL
+    type: str  # MARKET / LIMIT / SL / SL-M
+    qty: int
+    price: Optional[float] = None  # limit price (LIMIT, SL)
+    trigger: Optional[float] = None  # trigger price (SL, SL-M)
+    validity: str = "DAY"  # DAY / GTC
+    status: str = "OPEN"  # OPEN / TRIGGERED / EXECUTED / CANCELLED / REJECTED / EXPIRED
+    created: datetime
+    updated: datetime
+    tag: str = ""  # "" / TARGET / STOPLOSS (bracket legs)
+    group: Optional[str] = None  # one-cancels-other group for bracket legs
+    target: Optional[float] = None  # bracket: sell-limit leg placed after a BUY fills
+    stoploss: Optional[float] = None  # bracket: stop-market leg placed after a BUY fills
+    fill_price: Optional[float] = None
+    tx_id: Optional[str] = None
+    reason: str = ""
+
+
+class PriceAlert(BaseModel):
+    id: str
+    symbol: str
+    op: str  # ABOVE / BELOW
+    price: float
+    created: datetime
+    status: str = "ACTIVE"  # ACTIVE / TRIGGERED / CANCELLED
+    triggered_at: Optional[datetime] = None
+    note: str = ""
+
+
+class ResearchJob(BaseModel):
+    id: str
+    symbol: str
+    depth: str
+    started: datetime
+    ready_at: datetime
 
 
 class GameState(BaseModel):
@@ -393,7 +457,12 @@ class GameState(BaseModel):
     leave: LeaveState = Field(default_factory=LeaveState)
     stats: PlayerStats = Field(default_factory=PlayerStats)
     director: DirectorState = Field(default_factory=DirectorState)
-    last_tick: TickPaths = Field(default_factory=TickPaths)
+    hour: Optional[HourSession] = None
+    recent: RecentMinutes = Field(default_factory=RecentMinutes)
+    live: LiveClock = Field(default_factory=LiveClock)
+    orders: list[Order] = Field(default_factory=list)
+    alerts: list[PriceAlert] = Field(default_factory=list)
+    research_jobs: list[ResearchJob] = Field(default_factory=list)
     counters: dict[str, int] = Field(default_factory=dict)
     flags: dict[str, Any] = Field(default_factory=dict)
 

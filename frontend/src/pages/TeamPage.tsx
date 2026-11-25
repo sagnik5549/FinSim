@@ -48,7 +48,7 @@ export default function TeamPage() {
                 <Avatar id={m.core ? m.id : m.avatar} size={64} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-bold">{m.name}</div>
-                  <div className="text-2xs uppercase tracking-wider text-txt-mute">{m.role}</div>
+                  <div className="text-2xs text-txt-mute">{m.role}</div>
                   <div className="mt-1 text-2xs italic text-txt-dim">{m.personality}</div>
                 </div>
               </div>
