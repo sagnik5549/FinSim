@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { AlertOctagon, BookOpenCheck, Clock, Microscope, Search } from 'lucide-react'
+import { AlertOctagon, BookOpenCheck, Clock, Microscope } from 'lucide-react'
 import { useState } from 'react'
 import { useGame, useGameState } from '../../game/GameContext'
 import { gameTime, pct, price } from '../../game/format'
@@ -73,69 +73,79 @@ export function ThesisForm({ symbol }: { symbol: string }) {
 
 export function ResearchModal({ symbol: initial }: { symbol?: string }) {
   const s = useGameState()
-  const { run, setModal, busy } = useGame()
+  const { run, setModal, busy, toast } = useGame()
   const [symbol, setSymbol] = useState(initial ?? s.stocks[0].symbol)
-  const [report, setReport] = useState<ResearchReport | null>(null)
-  const hours = s.clock.hours_to_close
+  const mins = s.clock.minutes_to_close
   const open = s.clock.market_status === 'OPEN'
+  const job = s.research_jobs.find((j) => j.symbol === symbol)
+  const latest = s.research.find((r) => r.symbol === symbol)
   const stock = s.stocks.find((x) => x.symbol === symbol)!
+  const ready = (h: number) => {
+    const t = s.clock.game_hour * 60 + s.clock.game_minute + h * 60
+    return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+  }
 
   const go = async (depth: 'QUICK' | 'DEEP') => {
-    const r = await run<{ report: ResearchReport }>(() => api.research(symbol, depth))
-    if (r?.report) setReport(r.report)
+    const r = await run(() => api.research(symbol, depth))
+    if (r?.job) {
+      toast({ kind: 'info', title: 'Research started', body: `${symbol} ${depth === 'DEEP' ? 'deep dive' : 'quick look'} due at ${r.job.ready_at.slice(11, 16)}. The market keeps moving meanwhile.` })
+      setModal(null)
+    }
   }
   const deal = s.opportunities.find((o) => o.symbol === symbol && o.status === 'OPEN')
 
   return (
     <Modal onClose={() => setModal(null)} width="max-w-[620px]">
-      <div className="border-b border-line bg-gradient-to-r from-info/10 px-5 py-4">
-        <div className="flex items-center gap-2"><Microscope size={16} className="text-info" /><span className="font-display text-base font-bold">Research desk</span></div>
+      <div className="border-b border-line px-5 py-4">
+        <div className="flex items-center gap-2"><Microscope size={16} className="text-info" /><span className="text-base font-semibold">Research desk</span></div>
         <div className="mt-3 flex items-center gap-3">
-          <select className="input font-semibold" value={symbol} onChange={(e) => { setSymbol(e.target.value); setReport(null) }}>
-            {s.stocks.map((x) => <option key={x.symbol} value={x.symbol}>{x.symbol} — {x.name}</option>)}
+          <select className="input font-medium" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+            {s.stocks.map((x) => <option key={x.symbol} value={x.symbol}>{x.symbol} · {x.name}</option>)}
           </select>
           <div className="shrink-0 text-right text-2xs text-txt-mute">
             <div className="flex items-center gap-1"><Clock size={11} /> now {s.clock.time}</div>
-            <div className="num">{open ? `${hours}h to close` : 'market closed'}</div>
+            <div className="num">{open ? `${Math.floor(mins / 60)}h ${mins % 60}m to close` : 'market closed'}</div>
           </div>
         </div>
-        {deal && <div className="mt-2 rounded border border-gold/40 bg-gold-soft px-2 py-1 text-2xs text-gold">Block deal on {symbol} expires at {deal.expires_at.slice(11, 16)} — a deep dive ends at {String(s.clock.game_hour + 3).padStart(2, '0')}:00.</div>}
+        {deal && <div className="mt-2 rounded border border-gold/40 bg-gold-soft px-2 py-1 text-2xs text-gold">Block deal on {symbol} expires at {deal.expires_at.slice(11, 16)}. A deep dive would be ready at {ready(3)}.</div>}
       </div>
       <div className="space-y-3 px-5 py-4">
-        {!report && (
+        {job ? (
+          <div className="rounded border border-line bg-ink-800 px-3 py-2.5 text-xs text-txt-dim">
+            The desk is already working on {symbol}: {job.depth === 'DEEP' ? 'deep dive' : 'quick look'} due at {job.ready_at.slice(11, 16)}.
+          </div>
+        ) : (
           <div className="grid grid-cols-2 gap-3">
-            <ResearchOption title="Quick look" hours={1} who="senior_analyst" disabled={!open || hours < 1 || busy}
-              points={['Fair-value estimate (wider error)', 'Momentum, flows & balance sheet', 'Results view if reporting soon']}
-              onClick={() => go('QUICK')} ends={s.clock.game_hour + 1} />
-            <ResearchOption title="Deep dive" hours={3} who="research_director" disabled={!open || hours < 3 || busy}
-              points={['Tighter fair-value estimate', 'Next results: beat / miss view', 'Red-flag scan (hidden risks)']}
-              onClick={() => go('DEEP')} ends={s.clock.game_hour + 3} />
+            <ResearchOption title="Quick look" hours={1} who="senior_analyst" disabled={!open || mins < 60 || busy}
+              points={['Fair-value estimate (wider error)', 'Momentum, flows and balance sheet', 'Results view if reporting soon']}
+              onClick={() => go('QUICK')} ends={ready(1)} />
+            <ResearchOption title="Deep dive" hours={3} who="research_director" disabled={!open || mins < 180 || busy}
+              points={['Tighter fair-value estimate', 'Next results: beat or miss view', 'Red-flag scan (hidden risks)']}
+              onClick={() => go('DEEP')} ends={ready(3)} />
           </div>
         )}
-        {report && <ReportCard r={report} current={stock.price} />}
-        {report && <ThesisForm symbol={symbol} />}
-        {report && (
-          <div className="flex justify-end gap-2">
-            <Button onClick={() => setReport(null)}><Search size={13} /> Research another</Button>
-            <Button variant="buy" disabled={s.clock.market_status !== 'OPEN'} onClick={() => setModal({ kind: 'trade', side: 'BUY', symbol })}>Buy {symbol}</Button>
-          </div>
-        )}
+        <p className="text-2xs text-txt-mute">Analysts work in game time while the market keeps trading. You get a notification when the report is ready.</p>
+        {latest && <><div className="label">Latest report on file</div><ReportCard r={latest} current={stock.price} /></>}
+        <ThesisForm symbol={symbol} />
+        <div className="flex justify-end gap-2">
+          <Button variant="buy" onClick={() => setModal({ kind: 'trade', side: 'BUY', symbol })}>Buy {symbol}</Button>
+        </div>
       </div>
     </Modal>
   )
 }
 
 function ResearchOption({ title, hours, who, points, onClick, disabled, ends }: {
-  title: string; hours: number; who: string; points: string[]; onClick: () => void; disabled: boolean; ends: number
+  title: string; hours: number; who: string; points: string[]; onClick: () => void; disabled: boolean; ends: string
 }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className="group rounded-lg border border-line bg-ink-900 p-3 text-left transition hover:border-info/60 hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-40">
+      className="group rounded-md border border-line bg-ink-900 p-3 text-left transition-colors hover:border-info/60 hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-40">
       <div className="flex items-center gap-2">
         <Avatar id={who} size={34} />
         <div>
-          <div className="text-sm font-semibold">{title}</div>
-          <div className="num text-2xs font-bold text-warn">costs {hours}h · ready {String(Math.min(ends, 17)).padStart(2, '0')}:00</div>
+          <div className="text-sm font-medium">{title}</div>
+          <div className="num text-2xs text-txt-mute">takes {hours}h · ready {ends}</div>
         </div>
       </div>
       <ul className="mt-2 space-y-0.5 text-2xs text-txt-dim">{points.map((p) => <li key={p}>• {p}</li>)}</ul>

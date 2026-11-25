@@ -88,11 +88,11 @@ def test_news_events_change_market_state(engine):
     assert ev.impacts["DHAN"] < 0 and jumps["DHAN"] < 0
     assert s.stocks["DHAN"].sentiment < s_before
     assert any(n.event_id == ev.id for n in s.news)
-    # the jump is applied in the next simulated hour
+    # the jump is applied on the next simulated minute
     eng.events.state.stocks["DHAN"].price = before
     from app.simulation import market_engine as me
-    from datetime import timedelta
-    me.simulate_hour(s, eng.rng, s.now, jumps, {}, {}, 0.0)
+    me.begin_hour(s, s.now, {}, {}, 0.0, jumps)
+    me.step_minutes(s, eng.rng, 1)
     assert s.stocks["DHAN"].price < before * 1.02
 
 

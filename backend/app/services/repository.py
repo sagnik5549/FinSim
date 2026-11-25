@@ -3,7 +3,7 @@ Persistence for GameState: authoritative JSON snapshot + relational projections.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import delete, insert, select
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import models as m
 from app.simulation import portfolio_engine as pe
+from app.simulation.constants import MINUTE_HISTORY_DAYS
 from app.simulation.state import GameState
 
 _TS_FIELDS = {"t", "start", "end"}
@@ -49,6 +50,11 @@ def save(db: Session, state: GameState, player_id: str) -> None:
     gid = state.id
     if out.get("stock_prices"):
         db.execute(insert(m.StockPrice), [{"game_id": gid, **r} for r in _parse_ts(out["stock_prices"])])
+    if out.get("minute_prices"):
+        cutoff = state.now - timedelta(days=MINUTE_HISTORY_DAYS)
+        rows = [r for r in _parse_ts(out["minute_prices"]) if r["t"] >= cutoff]
+        if rows:
+            db.execute(insert(m.MinutePrice), [{"game_id": gid, **r} for r in rows])
     if out.get("transactions"):
         db.execute(insert(m.TransactionRow), [{"game_id": gid, **r} for r in _parse_ts(out["transactions"])])
     if out.get("events"):
@@ -58,6 +64,9 @@ def save(db: Session, state: GameState, player_id: str) -> None:
     if out.get("leave_records"):
         db.execute(insert(m.LeaveRecordRow), [{"game_id": gid, **r} for r in _parse_ts(out["leave_records"])])
     if out.get("game_days"):
+        # A session closed: drop 1-minute bars that have aged out of the intraday charts.
+        db.execute(delete(m.MinutePrice).where(
+            m.MinutePrice.game_id == gid, m.MinutePrice.t < state.now - timedelta(days=MINUTE_HISTORY_DAYS)))
         db.execute(insert(m.GameDayRow), [{"game_id": gid, **r} for r in out["game_days"]])
         econ = state.market.economy.model_dump()
         db.execute(insert(m.MarketStateRow), [{"game_id": gid, "date": r["date"], "regime": r["regime"],
@@ -111,6 +120,7 @@ def rollback_to(db: Session, state: GameState) -> None:
     """Discard history rows that lie in the future of `state` (used when loading a save)."""
     gid, now = state.id, state.now
     db.execute(delete(m.StockPrice).where(m.StockPrice.game_id == gid, m.StockPrice.t >= now))
+    db.execute(delete(m.MinutePrice).where(m.MinutePrice.game_id == gid, m.MinutePrice.t >= now))
     keep_tx = {t.id for t in state.transactions}
     rows = db.execute(select(m.TransactionRow.id, m.TransactionRow.tx_id).where(m.TransactionRow.game_id == gid)).all()
     stale = [r.id for r in rows if r.tx_id not in keep_tx]
@@ -132,6 +142,12 @@ def rollback_to(db: Session, state: GameState) -> None:
 def candles(db: Session, game_id: str, symbol: str, limit: int = 2000) -> list[m.StockPrice]:
     q = (select(m.StockPrice).where(m.StockPrice.game_id == game_id, m.StockPrice.symbol == symbol)
          .order_by(m.StockPrice.t.desc()).limit(limit))
+    return list(reversed(db.execute(q).scalars().all()))
+
+
+def minute_candles(db: Session, game_id: str, symbol: str, limit: int = 2000) -> list[m.MinutePrice]:
+    q = (select(m.MinutePrice).where(m.MinutePrice.game_id == game_id, m.MinutePrice.symbol == symbol)
+         .order_by(m.MinutePrice.t.desc()).limit(limit))
     return list(reversed(db.execute(q).scalars().all()))
 
 

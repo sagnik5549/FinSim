@@ -20,7 +20,11 @@ EXCHANGE_NAME = "Dalal Street Exchange"
 MARKET_OPEN_HOUR = 9
 MARKET_CLOSE_HOUR = 17
 TRADING_HOURS_PER_DAY = MARKET_CLOSE_HOUR - MARKET_OPEN_HOUR  # 8
-SUBSTEPS_PER_HOUR = 12  # 5-minute ticks inside each simulated hour
+SUBSTEPS_PER_HOUR = 60  # the market moves one minute at a time
+TRADING_MINUTES_PER_DAY = TRADING_HOURS_PER_DAY * 60  # 480
+MINUTE_HISTORY_DAYS = 7  # calendar days of 1-minute bars kept for intraday charts
+LIVE_MAX_CATCHUP_SECONDS = 90  # live clock: a desk left unattended longer than this simply resumes
+# Live pacing (real seconds per session, speed list, closed-market pause) lives in app.config.
 QUARTER_DAYS = 90
 CAREER_YEAR_DAYS = 360
 PAID_LEAVE_PER_YEAR = 60

@@ -44,17 +44,17 @@ export default function Onboarding() {
     <div className="relative flex h-full items-center justify-center overflow-hidden bg-ink-950">
       <Backdrop />
       {stage < 3 && (
-        <button onClick={() => { setStage(3); setLines(CEO_LINES.length) }} className="absolute right-6 top-6 z-10 text-2xs font-bold uppercase tracking-[0.2em] text-txt-mute hover:text-txt">
+        <button onClick={() => { setStage(3); setLines(CEO_LINES.length) }} className="absolute right-6 top-6 z-10 text-2xs font-bold text-txt-mute hover:text-txt">
           Skip intro →
         </button>
       )}
 
       {stage === 0 && (
         <div className="text-center animate-rise">
-          <div className="mx-auto mb-5 h-px w-40 bg-gradient-to-r from-transparent via-gold to-transparent" />
-          <h1 className="font-display text-5xl font-bold tracking-[0.35em] text-txt">APEX CAPITAL</h1>
-          <div className="mt-3 text-sm uppercase tracking-[0.4em] text-txt-dim">Investment Management Division</div>
-          <div className="mx-auto mt-5 h-px w-40 bg-gradient-to-r from-transparent via-gold to-transparent" />
+          <div className="mx-auto mb-5 h-px w-40" />
+          <h1 className="font-display text-5xl font-bold text-txt">Apex Capital</h1>
+          <div className="mt-3 text-sm text-txt-dim">Investment Management Division</div>
+          <div className="mx-auto mt-5 h-px w-40" />
         </div>
       )}
 
@@ -73,7 +73,7 @@ export default function Onboarding() {
             <Avatar id="ceo" size={240} />
             <div className="mt-3 text-center">
               <div className="font-display text-lg font-bold">Vikram Sethi</div>
-              <div className="text-2xs uppercase tracking-[0.2em] text-txt-mute">Chief Executive Officer</div>
+              <div className="text-2xs text-txt-mute">Chief Executive Officer</div>
             </div>
           </div>
           <div className="min-w-[340px] space-y-3">
@@ -92,8 +92,8 @@ export default function Onboarding() {
             <Avatar id="ceo" size={180} />
           </div>
           <div className="panel flex-1 overflow-hidden">
-            <div className="border-b border-line bg-gradient-to-r from-gold/15 via-transparent px-6 py-4">
-              <div className="label tracking-[0.3em]">Apex Capital · Letter of appointment</div>
+            <div className="border-b border-line px-6 py-4">
+              <div className="label">Apex Capital · Letter of appointment</div>
               <div className="mt-1 font-display text-2xl font-bold">Your mandate</div>
             </div>
             <div className="grid grid-cols-2 gap-px bg-line">
@@ -108,8 +108,8 @@ export default function Onboarding() {
               <p className="max-w-sm text-2xs leading-relaxed text-txt-mute">
                 A simulation game. Every company, index, price and person is fictional. Not financial advice.
               </p>
-              <Button variant="gold" size="lg" onClick={start} disabled={busy} className="min-w-[200px] tracking-[0.2em]">
-                {busy ? <Loader2 className="animate-spin" size={18} /> : <>START CAREER <ArrowRight size={18} /></>}
+              <Button variant="gold" size="lg" onClick={start} disabled={busy} className="min-w-[200px]">
+                {busy ? <Loader2 className="animate-spin" size={18} /> : <>Start career <ArrowRight size={18} /></>}
               </Button>
             </div>
           </div>

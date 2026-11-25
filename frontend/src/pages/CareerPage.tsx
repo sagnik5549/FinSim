@@ -26,15 +26,15 @@ export default function CareerPage() {
   return (
     <div className="grid h-full min-h-0 grid-cols-12 gap-2.5 overflow-y-auto p-2.5">
       <div className="panel relative col-span-12 overflow-hidden lg:col-span-8">
-        <div className="absolute inset-0 bg-gradient-to-br from-gold/10 via-transparent to-info/10" />
+        <div className="absolute inset-0" />
         <div className="relative flex items-center gap-6 p-5">
           <div className="relative">
-            <div className="grid h-28 w-28 place-items-center rounded-2xl border-2 border-gold/70 bg-ink-900 shadow-glowGold">
+            <div className="grid h-28 w-28 place-items-center rounded-2xl border-2 border-gold/70 bg-ink-900">
               <div className="text-center"><div className="label !text-gold">Level</div><div className="font-display text-5xl font-bold text-gold">{c.level}</div></div>
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="label tracking-[0.25em]">Apex Capital · Quarter {c.quarter_index}</div>
+            <div className="label">Apex Capital · Quarter {c.quarter_index}</div>
             <div className="font-display text-3xl font-bold">{c.title.toUpperCase()}</div>
             <div className="mt-3 flex items-center gap-3">
               <Bar value={c.xp - c.xp_level_start} max={xpSpan} tone="gold" className="h-2.5 max-w-sm" />
@@ -48,10 +48,10 @@ export default function CareerPage() {
           </div>
           <div className="flex gap-4">
             <Ring value={c.reputation / 100} color={c.reputation >= 60 ? '#26D07C' : c.reputation >= 40 ? '#F5A524' : '#F2495C'} size={96}>
-              <span className="num text-xl font-bold">{Math.round(c.reputation)}</span><span className="text-[9px] uppercase tracking-wider text-txt-mute">reputation</span>
+              <span className="num text-xl font-bold">{Math.round(c.reputation)}</span><span className="text-[9px] text-txt-mute">reputation</span>
             </Ring>
             <Ring value={Math.max(0, c.target_progress)} color="#E9B949" size={96}>
-              <span className="num text-xl font-bold">{Math.round(c.target_progress * 100)}%</span><span className="text-[9px] uppercase tracking-wider text-txt-mute">target</span>
+              <span className="num text-xl font-bold">{Math.round(c.target_progress * 100)}%</span><span className="text-[9px] text-txt-mute">target</span>
             </Ring>
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function CareerPage() {
             const cur = l.level === c.level
             return (
               <div key={l.level} className={clsx('relative rounded-lg border p-2.5 text-center',
-                cur ? 'border-gold/70 bg-gold-soft shadow-glowGold' : done ? 'border-up/40 bg-up-soft' : 'border-line bg-ink-900 opacity-70')}>
+                cur ? 'border-gold/70 bg-gold-soft' : done ? 'border-up/40 bg-up-soft' : 'border-line bg-ink-900 opacity-70')}>
                 <div className={clsx('mx-auto grid h-8 w-8 place-items-center rounded-full font-display text-sm font-bold', cur ? 'bg-gold text-ink-950' : done ? 'bg-up text-ink-950' : 'bg-ink-700 text-txt-mute')}>
                   {l.level > c.level ? <Lock size={13} /> : l.level}
                 </div>

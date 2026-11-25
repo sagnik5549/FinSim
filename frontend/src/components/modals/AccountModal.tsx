@@ -10,7 +10,7 @@ import { Badge, Button, Modal } from '../common/ui'
 function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
     <section className="space-y-2 border-b border-line px-5 py-4 last:border-b-0">
-      <div className="flex items-center gap-2 text-2xs font-bold uppercase tracking-[0.16em] text-txt-dim">{icon}{title}</div>
+      <div className="flex items-center gap-2 text-2xs font-bold text-txt-dim">{icon}{title}</div>
       {children}
     </section>
   )

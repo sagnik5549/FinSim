@@ -9,6 +9,8 @@ import pytest
 _tmp = tempfile.mkdtemp(prefix="ibmode-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(_tmp, 'test.db').as_posix()}"
 os.environ["IBM_DISABLE_ML"] = "1"
+# The live clock follows wall time; tests drive time explicitly (see test_live_market.py).
+os.environ["LIVE_CLOCK"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402

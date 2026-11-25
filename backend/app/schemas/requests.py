@@ -72,6 +72,41 @@ class QuoteRequest(TradeRequest):
     side: Literal["BUY", "SELL"]
 
 
+Price = Annotated[float, Field(gt=0, le=1e9)]
+
+
+class OrderRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=12)
+    side: Literal["BUY", "SELL"]
+    type: Literal["MARKET", "LIMIT", "SL", "SL-M"] = "MARKET"
+    quantity: StrictInt
+    price: Optional[Price] = None
+    trigger: Optional[Price] = None
+    validity: Literal["DAY", "GTC"] = "DAY"
+    target: Optional[Price] = None
+    stoploss: Optional[Price] = None
+
+
+class ModifyOrderRequest(BaseModel):
+    quantity: Optional[StrictInt] = None
+    price: Optional[Price] = None
+    trigger: Optional[Price] = None
+
+
+class AlertRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=12)
+    price: Price
+    note: str = Field(default="", max_length=120)
+
+
+class TickRequest(BaseModel):
+    version: Optional[int] = None
+
+
+class SpeedRequest(BaseModel):
+    speed: StrictInt = Field(ge=1, le=64)
+
+
 class ResearchRequest(BaseModel):
     depth: Literal["QUICK", "DEEP"] = "QUICK"
 

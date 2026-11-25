@@ -99,14 +99,14 @@ export default function Login() {
       <Backdrop />
       <div className="relative w-full max-w-[400px] animate-rise">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 h-px w-32 bg-gradient-to-r from-transparent via-gold to-transparent" />
-          <h1 className="font-display text-3xl font-bold tracking-[0.3em] text-txt">APEX CAPITAL</h1>
-          <div className="mt-2 text-2xs uppercase tracking-[0.4em] text-txt-dim">Investment Management Division</div>
+          <div className="mx-auto mb-4 h-px w-32" />
+          <h1 className="font-display text-3xl font-bold text-txt">Apex Capital</h1>
+          <div className="mt-2 text-2xs text-txt-dim">Investment Management Division</div>
         </div>
 
         <div className="panel overflow-hidden">
           {mode === 'forgot' ? <ForgotPassword initialEmail={email} onDone={() => switchMode('signin')} /> : <>
-          <div className="grid grid-cols-2 border-b border-line text-xs font-bold uppercase tracking-[0.18em]">
+          <div className="grid grid-cols-2 border-b border-line text-xs font-bold">
             {(['signin', 'signup'] as const).map((m) => (
               <button key={m} type="button" onClick={() => switchMode(m)}
                 className={clsx('py-3 transition', mode === m ? 'bg-gold/10 text-gold shadow-[inset_0_-2px_0_#E9B949]' : 'text-txt-mute hover:text-txt')}>
@@ -146,9 +146,9 @@ export default function Login() {
 
             {error && <Notice tone="error">{error}</Notice>}
 
-            <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full tracking-[0.2em]">
+            <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full">
               {working ? <Loader2 className="animate-spin" size={18} />
-                : <>{mode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'} <ArrowRight size={18} /></>}
+                : <>{mode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight size={18} /></>}
             </Button>
           </form>
           </>}
@@ -156,7 +156,7 @@ export default function Login() {
           {/* Kept mounted while resetting a password so Google's button doesn't have to be re-rendered. */}
           {googleClientId && (
             <div className={clsx('px-6 pb-6', mode === 'forgot' && 'hidden')}>
-              <div className="mb-4 flex items-center gap-3 text-2xs uppercase tracking-[0.2em] text-txt-mute">
+              <div className="mb-4 flex items-center gap-3 text-2xs text-txt-mute">
                 <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
               </div>
               {/* Google's button iframe paints an opaque white box when it inherits color-scheme: dark. */}
@@ -226,8 +226,8 @@ function ForgotPassword({ initialEmail, onDone }: { initialEmail: string; onDone
               onChange={(e) => setEmail(e.target.value)} />
           </label>
           {error && <Notice tone="error">{error}</Notice>}
-          <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full tracking-[0.2em]">
-            {working ? <Loader2 className="animate-spin" size={18} /> : <>SEND CODE <ArrowRight size={18} /></>}
+          <Button type="submit" variant="gold" size="lg" disabled={working} className="w-full">
+            {working ? <Loader2 className="animate-spin" size={18} /> : <>Send code <ArrowRight size={18} /></>}
           </Button>
         </form>
       ) : (
@@ -244,7 +244,7 @@ function ForgotPassword({ initialEmail, onDone }: { initialEmail: string; onDone
             <span className="mt-1 block text-2xs text-txt-mute">{PASSWORD_HINT}</span>
           </label>
           {error && <Notice tone="error">{error}</Notice>}
-          <Button type="submit" variant="gold" size="lg" disabled={working || code.length !== 6} className="w-full tracking-[0.2em]">
+          <Button type="submit" variant="gold" size="lg" disabled={working || code.length !== 6} className="w-full">
             {working ? <Loader2 className="animate-spin" size={18} /> : <>SET PASSWORD &amp; SIGN IN <ArrowRight size={18} /></>}
           </Button>
           <button type="button" onClick={() => send()} disabled={working} className="text-2xs font-semibold text-info hover:underline disabled:opacity-50">

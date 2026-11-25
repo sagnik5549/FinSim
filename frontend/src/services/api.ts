@@ -1,4 +1,19 @@
-import type { ActionResponse, GameState, Quote, ResearchReport, SaveSlot, SymbolDetail, Transaction } from '../types/game'
+import type {
+  ActionResponse, GameState, Order, OrderType, PriceAlert, Quote, ResearchJob, SaveSlot, SymbolDetail, TickResponse, Timeframe,
+  Transaction,
+} from '../types/game'
+
+export interface OrderInput {
+  symbol: string
+  side: 'BUY' | 'SELL'
+  type: OrderType
+  quantity: number
+  price?: number
+  trigger?: number
+  validity?: 'DAY' | 'GTC'
+  target?: number
+  stoploss?: number
+}
 
 const GAME_KEY = 'ibm.gameId'
 const PLAYER_KEY = 'ibm.playerId'
@@ -130,6 +145,9 @@ export const api = {
   restart: () => request<{ player_id: string; state: GameState }>('POST', '/game/restart'),
   state: () => request<GameState>('GET', '/game/state'),
 
+  tick: (version?: number) => request<GameState | TickResponse>('POST', '/game/tick', { version }),
+  setSpeed: (speed: number): Act => request('POST', '/game/speed', { speed }),
+
   advanceHour: (): Act => request('POST', '/game/advance-hour'),
   advanceHours: (hours: number): Act => request('POST', '/game/advance-hours', { hours }),
   advanceToClose: (): Act => request('POST', '/game/advance-to-close'),
@@ -144,8 +162,15 @@ export const api = {
   saves: () => request<SaveSlot[]>('GET', '/game/saves'),
   load: (save_id: number) => request<{ game_id: string; state: GameState }>('POST', '/game/load', { save_id }),
 
-  symbol: (symbol: string, tf: '1h' | '1d' = '1h', limit = 240) =>
+  symbol: (symbol: string, tf: Timeframe = '1h', limit = 240) =>
     request<SymbolDetail>('GET', `/market/${symbol}?tf=${tf}&limit=${limit}`),
+
+  placeOrder: (o: OrderInput): Act<{ order: Order; transaction?: Transaction }> => request('POST', '/orders', o),
+  modifyOrder: (id: string, m: { quantity?: number; price?: number; trigger?: number }): Act<{ order: Order }> =>
+    request('POST', `/orders/${id}/modify`, m),
+  cancelOrder: (id: string): Act<{ order: Order }> => request('POST', `/orders/${id}/cancel`),
+  addAlert: (symbol: string, price: number, note = ''): Act<{ alert: PriceAlert }> => request('POST', '/alerts', { symbol, price, note }),
+  cancelAlert: (id: string): Act => request('POST', `/alerts/${id}/cancel`),
 
   quote: (side: 'BUY' | 'SELL', symbol: string, quantity: number) =>
     request<Quote>('POST', '/trade/quote', { side, symbol, quantity }),
@@ -155,7 +180,7 @@ export const api = {
   acceptDeal: (id: string, quantity?: number): Act => request('POST', `/opportunities/${id}/accept`, { quantity }),
   declineDeal: (id: string): Act => request('POST', `/opportunities/${id}/decline`),
 
-  research: (symbol: string, depth: 'QUICK' | 'DEEP'): Act<{ report: ResearchReport; hours_used: number }> => request('POST', `/research/${symbol}`, { depth }),
+  research: (symbol: string, depth: 'QUICK' | 'DEEP'): Act<{ job: ResearchJob }> => request('POST', `/research/${symbol}`, { depth }),
   thesis: (symbol: string, stance: string, text: string): Act => request('POST', '/research/thesis', { symbol, stance, text }),
 
   resolveRisk: (warning_id: string, action: string): Act => request('POST', '/risk/resolve', { warning_id, action }),

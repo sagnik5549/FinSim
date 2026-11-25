@@ -122,6 +122,21 @@ class StockPrice(Base):
     v: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
+class MinutePrice(Base):
+    """1-minute OHLCV bars for intraday charts (pruned to the last few days)."""
+    __tablename__ = "minute_prices"
+    __table_args__ = (Index("ix_minute_game_symbol_t", "game_id", "symbol", "t"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    game_id: Mapped[str] = mapped_column(_fk())
+    symbol: Mapped[str] = mapped_column(String(12))
+    t: Mapped[datetime] = mapped_column(DateTime)
+    o: Mapped[float] = mapped_column(Float)
+    h: Mapped[float] = mapped_column(Float)
+    l: Mapped[float] = mapped_column(Float)
+    c: Mapped[float] = mapped_column(Float)
+    v: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class MarketStateRow(Base):
     __tablename__ = "market_states"
     __table_args__ = (Index("ix_market_states_game_date", "game_id", "date"),)

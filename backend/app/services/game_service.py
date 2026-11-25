@@ -8,6 +8,7 @@ refresh resumes exactly where the player left off.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -79,7 +80,7 @@ def new_game(player_name: str = "Player", seed: Optional[int] = None, player_id:
         eng = GameEngine.new_game(game_id, seed)
         repo.save(db, eng.state, player_id)
         _cache[game_id] = (eng.state, player_id)
-        return {"player_id": player_id, "state": ser.full_state(eng.state)}
+        return {"player_id": player_id, "state": _state_out(eng, time.time())}
 
 
 def read(game_id: str, fn: Callable[[GameState], Any]) -> Any:
@@ -88,22 +89,70 @@ def read(game_id: str, fn: Callable[[GameState], Any]) -> Any:
         return fn(state)
 
 
+def live_speeds() -> list[int]:
+    try:
+        speeds = sorted({int(x) for x in settings.LIVE_SPEEDS.split(",") if x.strip()})
+    except ValueError:
+        speeds = []
+    return [x for x in speeds if 1 <= x <= 64] or [1, 2, 4]
+
+
+def _sync(eng: GameEngine, wall: float) -> bool:
+    if not settings.LIVE_CLOCK:
+        return False
+    return eng.sync_live(wall, settings.LIVE_SESSION_SECONDS, settings.LIVE_CLOSED_SECONDS)
+
+
+def _state_out(eng: GameEngine, wall: float) -> dict:
+    out = ser.full_state(eng.state)
+    out["live"] = eng.live_view(wall, settings.LIVE_SESSION_SECONDS, settings.LIVE_CLOSED_SECONDS, live_speeds())
+    out["live"]["enabled"] = settings.LIVE_CLOCK
+    return out
+
+
 def act(game_id: str, fn: Callable[[GameEngine], Any]) -> dict:
-    """Run a mutating action atomically: on any error the cached state is discarded."""
+    """Run a mutating action atomically: on any error the cached state is discarded.
+
+    The live clock is brought up to date first, so every order executes at the price
+    the market has reached by now."""
     with session() as db, _lock(game_id):
         state, player_id = _get(db, game_id, for_update=True)
         eng = GameEngine(state)
+        wall = time.time()
         try:
+            _sync(eng, wall)
             result = fn(eng)
         except ActionError:
-            # Validation errors are raised before mutation, but be safe with RNG/state.
+            # Validation errors are raised before mutation, but the clock may have moved: reload.
             _cache.pop(game_id, None)
             raise
         except Exception:
             _cache.pop(game_id, None)
             raise
         repo.save(db, state, player_id)
-        return {"result": result, "state": ser.full_state(state)}
+        return {"result": result, "state": _state_out(eng, wall)}
+
+
+def tick(game_id: str, known_version: Optional[int] = None) -> dict:
+    """Move the live market to the present. Saves only when something changed; when the
+    caller already has the latest version, the full state is not sent again."""
+    with session() as db, _lock(game_id):
+        state, player_id = _get(db, game_id, for_update=True)
+        eng = GameEngine(state)
+        wall = time.time()
+        try:
+            changed = _sync(eng, wall)
+        except Exception:
+            _cache.pop(game_id, None)
+            raise
+        if changed:
+            repo.save(db, state, player_id)
+        else:
+            db.rollback()  # release the row lock
+        if not changed and known_version is not None and known_version == state.version:
+            return {"unchanged": True, "version": state.version,
+                    "live": eng.live_view(wall, settings.LIVE_SESSION_SECONDS, settings.LIVE_CLOSED_SECONDS, live_speeds())}
+        return _state_out(eng, wall)
 
 
 def save_slot(game_id: str, name: str) -> dict:
@@ -143,7 +192,7 @@ def load_slot(save_id: int, player_id: Optional[str] = None) -> dict:
             row.updated_at = datetime.utcnow()
             db.commit()
             _cache[slot.game_id] = (state, slot.player_id)
-            return {"game_id": slot.game_id, "state": ser.full_state(state)}
+            return {"game_id": slot.game_id, "state": _state_out(GameEngine(state), time.time())}
 
 
 def owner_of(game_id: str) -> str:

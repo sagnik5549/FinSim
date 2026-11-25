@@ -29,7 +29,9 @@ from app.simulation.state import GameState
 
 
 class TimeHooks(Protocol):
-    def on_market_hour(self, start: datetime, end: datetime) -> None: ...
+    def on_hour_begin(self, start: datetime) -> None: ...
+    def on_minutes(self, k: int) -> None: ...  # must advance state.now by k minutes
+    def on_hour_end(self, start: datetime, end: datetime) -> None: ...
     def on_market_close(self, day: date) -> None: ...
     def on_non_business_day(self, day: date) -> None: ...
     def on_overnight(self, from_day: date, to_day: date) -> None: ...
@@ -89,6 +91,13 @@ class ClockView:
     working_day: bool
     is_on_leave: bool
     hours_to_close: int
+    minutes_to_close: int
+
+
+def minutes_to_close(now: datetime) -> int:
+    if market_status(now) != "OPEN":
+        return 0
+    return (MARKET_CLOSE_HOUR - now.hour) * 60 - now.minute
 
 
 def clock_view(state: GameState) -> ClockView:
@@ -96,6 +105,7 @@ def clock_view(state: GameState) -> ClockView:
     career_day = (now.date() - state.start_time.date()).days + 1
     quarter_day = (now.date() - state.career.quarter_start.date()).days + 1
     status = market_status(now)
+    mins = minutes_to_close(now)
     return ClockView(
         game_date=now.date().isoformat(),
         game_hour=now.hour,
@@ -109,7 +119,8 @@ def clock_view(state: GameState) -> ClockView:
         career_year=((career_day - 1) // CAREER_YEAR_DAYS) + 1,
         working_day=is_business_day(now.date()),
         is_on_leave=state.leave.is_on_leave,
-        hours_to_close=max(0, MARKET_CLOSE_HOUR - now.hour) if status == "OPEN" else 0,
+        hours_to_close=mins // 60,
+        minutes_to_close=mins,
     )
 
 
@@ -146,18 +157,36 @@ class TimeEngine:
         self.hooks.on_market_open(nxt)
         return True
 
+    def advance_minutes(self, n: int) -> int:
+        """Advance up to n trading minutes, never past the close. Returns hours completed.
+
+        Hours are opened (parameters drawn) on their first minute and closed (candle
+        written, risk and career checks run) on their last, whether the minutes come
+        one at a time from the live clock or sixty at once from a skip."""
+        completed = 0
+        s = self.state
+        while n > 0 and market_status(s.now) == "OPEN" and self.hooks.can_advance():
+            if s.hour is None:
+                self.hooks.on_hour_begin(s.now.replace(minute=0, second=0, microsecond=0))
+            k = min(n, 60 - s.now.minute)
+            self.hooks.on_minutes(k)
+            n -= k
+            if s.now.minute == 0:
+                start = s.hour.start if s.hour else s.now - timedelta(hours=1)
+                self.hooks.on_hour_end(start, s.now)
+                completed += 1
+                if s.now.hour >= MARKET_CLOSE_HOUR:
+                    self.hooks.on_market_close(s.now.date())
+        return completed
+
     def advance_hour(self) -> int:
-        """Advance exactly one game hour. Returns trading hours simulated (0 or 1)."""
+        """Advance to the next whole hour (finishing a partly played hour).
+
+        Returns trading hours completed (0 or 1)."""
         self._guard()
         status = market_status(self.state.now)
         if status == "OPEN":
-            start = self.state.now
-            end = start + timedelta(hours=1)
-            self.hooks.on_market_hour(start, end)
-            self.state.now = end
-            if end.hour >= MARKET_CLOSE_HOUR:
-                self.hooks.on_market_close(end.date())
-            return 1
+            return self.advance_minutes(60 - self.state.now.minute)
         # Closed / weekend / pre-market: move to the next session's open.
         if status == "PRE_MARKET":
             self.state.now = self.state.now.replace(hour=MARKET_OPEN_HOUR)

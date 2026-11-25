@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     MAIL_FROM: str = ""
+    # Live market clock. LIVE_SESSION_SECONDS is the real time one 8-hour trading session takes
+    # at 1x (default 7200 = 2 hours); LIVE_SPEEDS is the comma-separated list of speed multipliers.
+    # LIVE_CLOCK=0 freezes the clock between explicit actions (used by the test suite).
+    LIVE_CLOCK: bool = True
+    LIVE_SESSION_SECONDS: int = 7200
+    LIVE_SPEEDS: str = "1,2,4"
+    LIVE_CLOSED_SECONDS: int = 45
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

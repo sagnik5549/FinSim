@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError, session } from '../services/api'
-import type { ActionResponse, GameState, Page } from '../types/game'
+import type { ActionResponse, GameState, OrderType, Page, TickResponse } from '../types/game'
+import { liveStore } from './live'
 
 export interface Toast {
   id: number
@@ -10,7 +11,7 @@ export interface Toast {
 }
 
 export type Modal =
-  | { kind: 'trade'; side: 'BUY' | 'SELL'; symbol?: string }
+  | { kind: 'trade'; side: 'BUY' | 'SELL'; symbol?: string; type?: OrderType; price?: number; trigger?: number; qty?: number }
   | { kind: 'research'; symbol?: string }
   | { kind: 'leave' }
   | { kind: 'saves' }
@@ -19,11 +20,8 @@ export type Modal =
   | { kind: 'executed'; tx: { side: string; symbol: string; qty: number; price: number; value: number; realized_pnl: number; fee: number } }
   | null
 
-export const LIVE_SPEEDS = [
-  { label: '1×', ms: 6000 },
-  { label: '2×', ms: 3000 },
-  { label: '4×', ms: 1500 },
-] as const
+/** Order pad defaults (the pad floats beside the market instead of covering it). */
+export type Ticket = Extract<Modal, { kind: 'trade' }> | null
 
 interface Ctx {
   state: GameState | null
@@ -35,6 +33,10 @@ interface Ctx {
   openSymbol: (s: string, page?: Page) => void
   modal: Modal
   setModal: (m: Modal) => void
+  ticket: Ticket
+  setTicket: (t: Ticket) => void
+  chart: string | null
+  openChart: (symbol: string | null) => void
   toasts: Toast[]
   toast: (t: Omit<Toast, 'id'>) => void
   dismissToast: (id: number) => void
@@ -43,51 +45,15 @@ interface Ctx {
   restart: () => Promise<void>
   replaceState: (s: GameState) => void
   refresh: () => Promise<void>
-  live: boolean
-  setLive: (v: boolean) => void
-  speed: number
-  setSpeed: (i: number) => void
+  setSpeed: (speed: number) => void
+  connected: boolean
   leaveGame: () => void
 }
 
 const GameCtx = createContext<Ctx | null>(null)
 
-// ------------------------------------------------------------------ live replay
-export interface Replay {
-  t: string
-  paths: Record<string, number[]>
-  start: number
-  duration: number
-}
-
-interface LiveCtxValue {
-  replay: Replay | null
-  now: number
-}
-const LiveCtx = createContext<LiveCtxValue>({ replay: null, now: 0 })
-
-/** Interpolated position along an intra-hour path. Returns null when not animating. */
-export function samplePath(path: number[] | undefined, progress: number): number | null {
-  if (!path || path.length < 2) return null
-  const p = Math.min(1, Math.max(0, progress))
-  const x = p * (path.length - 1)
-  const i = Math.floor(x)
-  if (i >= path.length - 1) return path[path.length - 1]
-  const f = x - i
-  return path[i] + (path[i + 1] - path[i]) * f
-}
-
-export function useLiveProgress(): { replay: Replay | null; progress: number } {
-  const { replay, now } = useContext(LiveCtx)
-  if (!replay) return { replay: null, progress: 1 }
-  return { replay, progress: Math.min(1, (now - replay.start) / replay.duration) }
-}
-
-/** Live value for a symbol/index key: animates along the last hour's tick path. */
-export function useLiveValue(key: string, finalValue: number): number {
-  const { replay, progress } = useLiveProgress()
-  if (!replay || progress >= 1) return finalValue
-  return samplePath(replay.paths[key], progress) ?? finalValue
+function isFullState(x: GameState | TickResponse): x is GameState {
+  return (x as GameState).clock !== undefined
 }
 
 // ------------------------------------------------------------------ provider
@@ -96,21 +62,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true)
   const [busy, setBusy] = useState(false)
   const [page, setPage] = useState<Page>('dashboard')
-  const [symbol, setSymbol] = useState('BH50')
-  const [modal, setModal] = useState<Modal>(null)
+  const [symbol, setSymbol] = useState('AKSH')
+  const [modal, setModalRaw] = useState<Modal>(null)
+  const [ticket, setTicket] = useState<Ticket>(null)
+  const [chart, openChart] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [live, setLiveRaw] = useState(false)
-  const [speed, setSpeedRaw] = useState(() => {
-    try {
-      return Number(localStorage.getItem('ibm.speed') ?? 1) || 1
-    } catch {
-      return 1
-    }
-  })
-  const [replay, setReplay] = useState<Replay | null>(null)
-  const [now, setNow] = useState(0)
+  const [connected, setConnected] = useState(true)
   const busyRef = useRef(false)
-  const lastTickRef = useRef<string | null>(null)
+  const stateRef = useRef<GameState | null>(null)
+  const nextTickRef = useRef(5)
 
   const toast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.random()
@@ -119,48 +79,37 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, [])
   const dismissToast = useCallback((id: number) => setToasts((xs) => xs.filter((x) => x.id !== id)), [])
 
-  const liveMs = LIVE_SPEEDS[Math.min(speed, LIVE_SPEEDS.length - 1)].ms
-
-  const acceptState = useCallback(
-    (s: GameState, animate = true) => {
-      const t = s.last_tick?.t ?? null
-      if (animate && t && t !== lastTickRef.current && s.last_tick) {
-        const duration = live ? Math.min(liveMs * 0.85, 4200) : 1400
-        setReplay({ t, paths: s.last_tick.paths, start: performance.now(), duration })
-      }
-      lastTickRef.current = t
-      setState(s)
-    },
-    [live, liveMs],
-  )
-
-  // RAF loop only while a replay is running
-  useEffect(() => {
-    if (!replay) return
-    let raf = 0
-    let last = 0
-    const loop = (ts: number) => {
-      if (ts - last > 45) {
-        last = ts
-        setNow(ts)
-      }
-      if (ts - replay.start < replay.duration + 60) raf = requestAnimationFrame(loop)
-      else setNow(ts)
+  const setModal = useCallback((m: Modal) => {
+    if (m?.kind === 'trade') {
+      setTicket(m)
+      return
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [replay])
+    setModalRaw(m)
+  }, [])
+
+  const acceptState = useCallback((s: GameState, animate = true) => {
+    const prev = stateRef.current
+    const spm = s.live?.seconds_per_minute ?? 15
+    // Animate a minute or two of trading; jump straight to the result after a skip or a long gap.
+    const gap = prev ? (Date.parse(s.clock.iso) - Date.parse(prev.clock.iso)) / 60000 : Infinity
+    const ms = animate && prev && prev.game_id === s.game_id && gap >= 0 && gap <= 5 ? Math.min(spm * 1000 * 0.95, 20000) : 0
+    liveStore.ingest(s, ms)
+    stateRef.current = s
+    nextTickRef.current = s.live?.next_tick_in ?? 5
+    setState(s)
+  }, [])
 
   const handleError = useCallback(
     (e: unknown) => {
       if (e instanceof ApiError) {
         if (e.code === 'NO_GAME') {
           session.gameId = null
+          stateRef.current = null
           setState(null)
         }
-        toast({ kind: 'error', title: e.code.replace(/_/g, ' '), body: e.message })
+        toast({ kind: 'error', title: e.code.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase()), body: e.message })
       } else {
-        toast({ kind: 'error', title: 'Connection problem', body: 'The game server did not respond. Is the backend running?' })
+        toast({ kind: 'error', title: 'Connection problem', body: 'The game server did not respond.' })
       }
     },
     [toast],
@@ -200,16 +149,56 @@ export function GameProvider({ children }: { children: ReactNode }) {
     ;(async () => {
       if (session.gameId) {
         try {
-          const s = await api.state()
-          lastTickRef.current = s.last_tick?.t ?? null
-          setState(s)
+          acceptState(await api.state(), false)
         } catch {
           session.gameId = null
         }
       }
       setBooting(false)
     })()
-  }, [])
+  }, [acceptState])
+
+  // ---------------------------------------------------------------- live market
+  // The server owns the clock; we ask it to catch up whenever the next game minute is due.
+  const hasGame = !!state
+  useEffect(() => {
+    if (!hasGame) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    let failures = 0
+    const schedule = (sec: number) => {
+      if (!stopped) timer = setTimeout(tick, Math.max(300, Math.min(30_000, sec * 1000)))
+    }
+    const tick = async () => {
+      const cur = stateRef.current
+      if (!cur) return
+      if (busyRef.current) return schedule(0.4)
+      try {
+        const res = await api.tick(cur.version)
+        if (stopped) return
+        failures = 0
+        setConnected(true)
+        if (isFullState(res)) {
+          // Ignore a tick that raced an action and came back older than what we already show.
+          if (!busyRef.current && res.version >= (stateRef.current?.version ?? 0)) acceptState(res)
+          schedule(res.live?.next_tick_in ?? 5)
+        } else {
+          schedule(res.live?.next_tick_in ?? 5)
+        }
+      } catch (e) {
+        if (stopped) return
+        failures++
+        setConnected(false)
+        if (e instanceof ApiError && e.code === 'NO_GAME') return handleError(e)
+        schedule(Math.min(30, 2 * failures))
+      }
+    }
+    schedule(nextTickRef.current)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [hasGame, acceptState, handleError])
 
   const startNewGame = useCallback(
     async (seed?: number, name?: string) => {
@@ -217,30 +206,33 @@ export function GameProvider({ children }: { children: ReactNode }) {
       try {
         const res = await api.newGame(seed, name)
         session.gameId = res.state.game_id
-        lastTickRef.current = res.state.last_tick?.t ?? null
-        setState(res.state)
+        acceptState(res.state, false)
         setPage('dashboard')
-        setSymbol('BH50')
+        setSymbol(res.state.stocks[0]?.symbol ?? 'AKSH')
       } catch (e) {
         handleError(e)
       } finally {
         setBusy(false)
       }
     },
-    [handleError],
+    [acceptState, handleError],
   )
 
   const restart = useCallback(async () => {
-    setLiveRaw(false)
     session.gameId = null
+    stateRef.current = null
     setState(null)
-    setModal(null)
+    setModalRaw(null)
+    setTicket(null)
+    openChart(null)
   }, [])
 
   const leaveGame = useCallback(() => {
-    setLiveRaw(false)
+    stateRef.current = null
     setState(null)
-    setModal(null)
+    setModalRaw(null)
+    setTicket(null)
+    openChart(null)
   }, [])
 
   const replaceState = useCallback(
@@ -256,49 +248,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (p) setPage(p)
   }, [])
 
-  const setLive = useCallback((v: boolean) => setLiveRaw(v), [])
-  const setSpeed = useCallback((i: number) => {
-    setSpeedRaw(i)
-    try {
-      localStorage.setItem('ibm.speed', String(i))
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  // ---------------------------------------------------------------- live auto-play
-  useEffect(() => {
-    if (!live || !state) return
-    const paused =
-      busy || modal !== null || state.popups.length > 0 || state.career.status !== 'ACTIVE' || state.clock.is_on_leave
-    if (paused) return
-    const status = state.clock.market_status
-    const delay = status === 'OPEN' ? liveMs : Math.max(1200, liveMs / 2)
-    const id = setTimeout(() => {
-      if (status === 'OPEN') run(api.advanceHour, { quiet: true })
-      else run(api.nextBusinessDay, { quiet: true })
-    }, delay)
-    return () => clearTimeout(id)
-  }, [live, state, busy, modal, liveMs, run])
-
-  useEffect(() => {
-    if (state && state.career.status !== 'ACTIVE') setLiveRaw(false)
-  }, [state])
+  const setSpeed = useCallback((speed: number) => {
+    run(() => api.setSpeed(speed), { quiet: true })
+  }, [run])
 
   const value = useMemo<Ctx>(
     () => ({
-      state, booting, busy, page, setPage, symbol, openSymbol, modal, setModal, toasts, toast, dismissToast, run,
-      startNewGame, restart, replaceState, refresh, live, setLive, speed, setSpeed, leaveGame,
+      state, booting, busy, page, setPage, symbol, openSymbol, modal, setModal, ticket, setTicket, chart, openChart,
+      toasts, toast, dismissToast, run, startNewGame, restart, replaceState, refresh, setSpeed, connected, leaveGame,
     }),
-    [state, booting, busy, page, symbol, openSymbol, modal, toasts, toast, dismissToast, run, startNewGame, restart,
-      replaceState, refresh, live, setLive, speed, setSpeed, leaveGame],
+    [state, booting, busy, page, symbol, openSymbol, modal, setModal, ticket, chart, toasts, toast, dismissToast, run,
+      startNewGame, restart, replaceState, refresh, setSpeed, connected, leaveGame],
   )
 
-  return (
-    <GameCtx.Provider value={value}>
-      <LiveCtx.Provider value={{ replay, now }}>{children}</LiveCtx.Provider>
-    </GameCtx.Provider>
-  )
+  return <GameCtx.Provider value={value}>{children}</GameCtx.Provider>
 }
 
 export function useGame(): Ctx {

@@ -107,17 +107,29 @@ already holds a pre-accounts guest career adopts that career.
   the forms don't reveal which emails have accounts.
 - **Passwords:** at least 8 characters, with a letter and a number, and not your email address.
 
-**Live mode.** The ▶ LIVE button (1×, 2×, 4×) makes the browser request one hour at a time on a timer. The
-server returns each hour's tick path, and the charts replay it tick by tick. Popups that need an answer
-pause the clock.
+**The live market.** The market never waits for you. While the game is open the server moves it one game
+minute at a time in step with the wall clock: at 1× a full 8-hour session takes 2 real hours (one minute every
+15 s), and 2× or 4× speed it up. The browser asks the server to catch up whenever the next minute is due
+(`POST /api/game/tick`); the server works out how much real time has passed, simulates those minutes, and
+returns the new 1-minute bars, which the charts and prices animate along. Every order first brings the clock
+up to date, so fills happen at the price the market has reached. Only the quarterly review stops the clock.
+If nobody is at the desk for more than 90 seconds (tab closed, laptop asleep), the market resumes from where
+it was instead of fast-forwarding. Pacing is set by `LIVE_SESSION_SECONDS`, `LIVE_SPEEDS` and
+`LIVE_CLOSED_SECONDS`.
+
+**Trading.** Market, limit, stop-limit (SL) and stop-market (SL-M) orders, Day or Good-till-cancelled, with
+optional target and stop-loss legs (one cancels the other). Resting orders and price alerts are checked against
+every simulated minute's high and low. Charts have 1m to 1D timeframes, candles / bars / line / area,
+volume, SMA, EMA, Bollinger Bands, VWAP, RSI and MACD, and a large window where you click to mark buy, sell or
+alert levels and drag order lines to move them.
 
 ---
 
 ## Inside the simulation
 
 - **Time engine:** a real calendar with a 09:00–17:00 trading day, weekends, 90-day quarters and 360-day
-  career years. Skips, overnight gaps, weekends and leave days all run through the same per-hour hooks,
-  so skipping never skips the simulation.
+  career years. The live clock, skips, overnight gaps, weekends and leave days all run through the same
+  per-minute and per-hour hooks, so skipping never skips the simulation.
 - **Market engine:** a multi-factor model. A hidden regime (BULL, STABLE, VOLATILE, BEAR, CRISIS) sets
   drift, volatility and event rates, and switches on a Markov chain. On top of it are sector factors with
   macro sensitivities (rates, oil, global risk appetite, INR), fundamentals, mean reversion to a hidden fair
@@ -202,7 +214,7 @@ frontend/
     components/     terminal chrome, charts, modals & story popups, research, common UI, avatars
     pages/          Dashboard, Markets, StockDetail, Portfolio, Research, Trading, News, Team, Career, Performance, Onboarding, Login
     auth/           AuthContext (session token, sign-in, sign-out)
-    game/           GameContext (state, actions, live mode, tick replay), formatting
+    game/           GameContext (state, actions, live tick loop), live price store, indicators, theme
     services/       API client
     types/          DTO types
 docs/               IB-Mode-How-To-Play.pdf, the player's field manual
@@ -213,7 +225,7 @@ docs/               IB-Mode-How-To-Play.pdf, the player's field manual
 `GET /api/auth/config` · `POST /api/auth/signup` · `/login` · `/google` · `GET /api/auth/me` ·
 `POST /api/auth/password/forgot` · `/password/reset` · `/code` · `/email` · `/password` · `/profile` ·
 `/sign-out-everywhere` ·
-`GET /api/game/state` · `POST /api/game/new` · `POST /api/game/advance-hour` · `/advance-hours` · `/advance-to-close` ·
+`GET /api/game/state` · `POST /api/game/tick` · `POST /api/game/speed` · `POST /api/game/new` · `POST /api/game/advance-hour` · `/advance-hours` · `/advance-to-close` ·
 `/advance-next-business-day` · `/skip-weekend` · `/advance-week` · `/popup/ack` · `/save` · `GET /saves` · `POST /load`
 · `GET /api/market` · `GET /api/market/{symbol}?tf=1h|1d` · `GET /api/portfolio` · `POST /api/trade/quote|buy|sell` ·
 `POST /api/research/{symbol}` · `POST /api/research/thesis` · `GET /api/risk` · `POST /api/risk/resolve` ·
@@ -257,7 +269,7 @@ answer code requests with `503 EMAIL_NOT_CONFIGURED`.
   leave and hiring, but bonds, IPOs, M&A, clients and multiple portfolios are schema and extension points
   only.
 - There are no market holidays. The trading day is 09:00–17:00, as the design spec defines it.
-- Live mode is client-paced: a closed tab pauses the clock.
+- The live clock only runs while the game is open: a closed tab pauses the market.
 - Sign-up doesn't confirm that you own the email address (only password reset and email changes send codes).
 - The live site uses the rule-based director, and the trained model is learned from bot data rather than
   real players.

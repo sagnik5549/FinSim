@@ -1,142 +1,171 @@
 import clsx from 'clsx'
-import { Bell, Pause, Play, Save, Settings } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { LIVE_SPEEDS, useGame, useGameState } from '../../game/GameContext'
+import { Bell, CalendarClock, ChevronDown, FastForward, Gauge, Palmtree, Save, Settings, SkipForward, Sunrise } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useGame, useGameState } from '../../game/GameContext'
 import { gameTime } from '../../game/format'
 import { api } from '../../services/api'
-import { Bar } from '../common/ui'
+import type { Page } from '../../types/game'
+import { useOutside } from '../chart/ChartPanel'
 
-const STATUS_STYLE: Record<string, string> = {
-  OPEN: 'text-up border-up/40 bg-up-soft',
-  CLOSED: 'text-down border-down/40 bg-down-soft',
-  WEEKEND: 'text-violet border-violet/40 bg-violet-soft',
-  PRE_MARKET: 'text-warn border-warn/40 bg-warn-soft',
+export const NAV: { page: Page; label: string }[] = [
+  { page: 'dashboard', label: 'Dashboard' },
+  { page: 'markets', label: 'Markets' },
+  { page: 'stock', label: 'Chart' },
+  { page: 'orders', label: 'Orders' },
+  { page: 'portfolio', label: 'Portfolio' },
+  { page: 'research', label: 'Research' },
+  { page: 'news', label: 'News' },
+  { page: 'team', label: 'Team' },
+  { page: 'career', label: 'Career' },
+  { page: 'performance', label: 'Performance' },
+]
+
+/** Countdown that ticks locally between server updates. */
+export function useCountdown(seconds: number, key: unknown): number {
+  const [left, setLeft] = useState(seconds)
+  useEffect(() => {
+    const end = Date.now() + seconds * 1000
+    setLeft(seconds)
+    const id = setInterval(() => setLeft(Math.max(0, (end - Date.now()) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [seconds, key])
+  return left
+}
+
+function TimeMenu() {
+  const s = useGameState()
+  const { run, busy, setModal } = useGame()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useOutside(ref, useCallback(() => setOpen(false), []))
+  const c = s.clock
+  const blocked = busy || s.popups.some((p) => p.blocking && p.type === 'REVIEW') || s.career.status !== 'ACTIVE'
+  const isOpen = c.market_status === 'OPEN'
+  const act = (fn: () => Promise<never> | ReturnType<typeof api.advanceHour>) => {
+    setOpen(false)
+    run(fn as () => ReturnType<typeof api.advanceHour>)
+  }
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(!open)} title="Skip time"
+        className={clsx('flex h-8 items-center gap-1 rounded px-2 text-xs text-txt-dim hover:bg-ink-750 hover:text-txt', open && 'bg-ink-750 text-txt')}>
+        <FastForward size={14} /> <ChevronDown size={12} className="opacity-60" />
+      </button>
+      {open && (
+        <div className="menu absolute right-0 top-9 w-64">
+          <div className="px-3 pb-1 pt-1.5 text-2xs text-txt-mute">The market runs on its own. Skipping simulates every minute in between.</div>
+          <button className="menu-item" disabled={blocked || !isOpen} onClick={() => act(() => api.advanceHour())}><SkipForward size={14} />Skip to the next hour</button>
+          <button className="menu-item" disabled={blocked || !isOpen} onClick={() => act(api.advanceToClose)}><Gauge size={14} />Skip to the close (17:00)</button>
+          <button className="menu-item" disabled={blocked} onClick={() => act(api.nextBusinessDay)}><Sunrise size={14} />Next trading day</button>
+          <button className="menu-item" disabled={blocked} onClick={() => act(api.nextWeek)}><CalendarClock size={14} />Next week</button>
+          <div className="my-1 border-t border-line" />
+          <button className="menu-item" disabled={blocked} onClick={() => { setOpen(false); setModal({ kind: 'leave' }) }}>
+            <Palmtree size={14} />Take leave <span className="ml-auto text-2xs text-txt-mute">{s.leave.remaining} days</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function MarketClock() {
+  const s = useGameState()
+  const { setSpeed, busy } = useGame()
+  const c = s.clock
+  const live = s.live
+  const wait = useCountdown(live.next_tick_in, s.version)
+  const status = c.market_status
+  const label = status === 'OPEN' ? 'Open' : status === 'CLOSED' ? 'Closed' : status === 'WEEKEND' ? 'Weekend' : 'Pre-open'
+  return (
+    <div className="flex items-center gap-3">
+      <div className="text-right leading-tight">
+        <div className="num text-[15px] font-semibold text-txt">{c.time}</div>
+        <div className="text-2xs text-txt-mute">{c.label.slice(0, 3)} {c.label.slice(4, 10)}</div>
+      </div>
+      <div className="leading-tight">
+        <div className={clsx('flex items-center gap-1.5 text-xs font-medium', status === 'OPEN' ? 'text-up' : 'text-txt-dim')}>
+          <span className={clsx('h-1.5 w-1.5 rounded-full', status === 'OPEN' ? 'animate-pulseDot bg-up' : 'bg-txt-mute')} />
+          {label}
+        </div>
+        <div className="num text-2xs text-txt-mute">
+          {status === 'OPEN'
+            ? `closes in ${Math.floor(c.minutes_to_close / 60)}h ${String(c.minutes_to_close % 60).padStart(2, '0')}m`
+            : s.career.status === 'ACTIVE' ? `opens in ${Math.ceil(wait)}s` : 'paused'}
+        </div>
+      </div>
+      <div className="flex rounded border border-line p-0.5" title={`Speed. At 1x a full 8-hour session takes ${Math.round(live.session_seconds / 60)} minutes.`}>
+        {live.speeds.map((x) => (
+          <button key={x} disabled={busy} onClick={() => x !== live.speed && setSpeed(x)}
+            className={clsx('h-6 min-w-[30px] rounded px-1.5 text-xs font-medium', live.speed === x ? 'bg-ink-700 text-txt' : 'text-txt-mute hover:text-txt')}>
+            {x}x
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function TopBar() {
   const s = useGameState()
-  const { live, setLive, speed, setSpeed, setModal, run } = useGame()
-  const { clock, career } = s
-  const xpSpan = Math.max(1, career.xp_next - career.xp_level_start)
-  const xpIn = career.xp - career.xp_level_start
+  const { page, setPage, setModal, run } = useGame()
   const unread = s.notifications.filter((n) => !n.read).length
   const [open, setOpen] = useState(false)
   const menu = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const h = (e: MouseEvent) => menu.current && !menu.current.contains(e.target as Node) && setOpen(false)
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [])
-  const repTone = career.reputation >= 70 ? 'text-up' : career.reputation >= 45 ? 'text-info' : career.reputation >= 30 ? 'text-warn' : 'text-down'
+  useOutside(menu, useCallback(() => setOpen(false), []))
+  const openOrders = s.orders.filter((o) => o.status === 'OPEN' || o.status === 'TRIGGERED').length
+  const unreadMsgs = s.messages.filter((m) => !m.read).length
 
   return (
-    <header className="relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-ink-900/90 px-4 backdrop-blur">
-      <div className="flex shrink-0 items-center gap-2.5 pr-2">
-        <div className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-info to-violet shadow-glowInfo">
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="white" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 17l5-6 4 3 7-9" />
-          </svg>
+    <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-ink-900 pl-3 pr-2">
+      <div className="flex shrink-0 items-center gap-2 pr-3" title={`${s.career.firm} · ${s.career.title}`}>
+        <div className="grid h-7 w-7 place-items-center rounded bg-info text-white">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M4 17l5-6 4 3 7-9" /></svg>
         </div>
-        <div className="leading-none">
-          <div className="font-display text-[15px] font-bold tracking-wide">IB MODE</div>
-          <div className="mt-0.5 text-2xs uppercase tracking-[0.18em] text-txt-mute">{career.firm}</div>
-        </div>
+        <span className="hidden text-sm font-semibold text-txt 2xl:inline">IB Mode</span>
       </div>
-
-      <div className="flex shrink-0 items-center gap-3 border-l border-line pl-4">
-        <div className="grid h-9 w-9 place-items-center rounded-full border-2 border-gold/70 bg-gold-soft font-display text-sm font-bold text-gold shadow-glowGold" title="Career level">
-          {career.level}
-        </div>
-        <div className="min-w-[190px]">
-          <div className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wider text-txt">{career.title}</div>
-          <div className="mt-1 flex items-center gap-2">
-            <Bar value={xpIn} max={xpSpan} tone="gold" className="w-20" />
-            <span className="num whitespace-nowrap text-2xs text-txt-mute">{career.xp.toLocaleString('en-IN')} / {career.xp_next.toLocaleString('en-IN')} XP</span>
-          </div>
-        </div>
-        <div className="ml-1" title="Reputation (0-100)">
-          <div className="label">Reputation</div>
-          <div className={clsx('num text-[15px] font-bold', repTone)}>{career.reputation.toFixed(0)}</div>
-        </div>
-        {career.warning_level > 0 && (
-          <span className={clsx('rounded border px-2 py-0.5 text-2xs font-bold uppercase tracking-wider',
-            career.warning_level >= 2 ? 'border-down/50 bg-down-soft text-down' : 'border-warn/50 bg-warn-soft text-warn')}>
-            {career.warning_level >= 2 ? 'Final warning' : 'Warning'}
-          </span>
-        )}
-      </div>
-
-      <div className="mx-auto flex items-center gap-5">
-        <div className="text-right">
-          <div className="label">{clock.day_of_week}</div>
-          <div className="num text-[22px] font-bold leading-none text-txt">{clock.time}</div>
-        </div>
-        <div className="border-l border-line pl-4">
-          <div className="text-[11px] font-semibold text-txt-dim">{clock.label}</div>
-          <div className="mt-0.5 flex items-center gap-2 text-2xs text-txt-mute">
-            <span className="num font-semibold text-txt">DAY {Math.min(clock.quarter_day, clock.quarter_days)} / {clock.quarter_days}</span>
-            <span>·</span>
-            <span>Q{clock.quarter}, YEAR {clock.career_year}</span>
-          </div>
-        </div>
-        <span className={clsx('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs font-bold tracking-wider', STATUS_STYLE[clock.market_status])}>
-          <span className={clsx('h-1.5 w-1.5 rounded-full bg-current', clock.market_status === 'OPEN' && 'animate-pulseDot')} />
-          MARKET {clock.market_status.replace('_', '-')}
-        </span>
-        {clock.market_status === 'OPEN' && (
-          <span className="num text-2xs text-txt-mute">{clock.hours_to_close}h to close</span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-1.5 rounded-md border border-line bg-ink-850 p-1" title="Live mode: the clock advances automatically, one game hour at a time">
-        <button
-          onClick={() => setLive(!live)}
-          disabled={career.status !== 'ACTIVE'}
-          className={clsx('flex h-7 items-center gap-1.5 rounded px-2.5 text-2xs font-bold tracking-wider transition disabled:opacity-40',
-            live ? 'bg-up text-ink-950 shadow-glowUp' : 'bg-ink-700 text-txt-dim hover:text-txt')}
-        >
-          {live ? <Pause size={12} /> : <Play size={12} />}
-          {live ? 'LIVE' : 'PAUSED'}
-        </button>
-        {LIVE_SPEEDS.map((sp, i) => (
-          <button key={sp.label} onClick={() => setSpeed(i)}
-            className={clsx('h-7 rounded px-2 text-2xs font-bold', speed === i ? 'bg-ink-600 text-txt' : 'text-txt-mute hover:text-txt-dim')}>
-            {sp.label}
+      <nav className="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none]">
+        {NAV.map((n) => {
+          const badge = n.page === 'orders' ? openOrders : n.page === 'team' ? unreadMsgs : 0
+          return (
+            <button key={n.page} onClick={() => setPage(n.page)} className={clsx('tab shrink-0', page === n.page && 'tab-on')}>
+              {n.label}
+              {badge > 0 && <span className="num ml-1.5 rounded bg-ink-700 px-1 text-[10px] text-txt-dim">{badge}</span>}
+            </button>
+          )
+        })}
+      </nav>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <MarketClock />
+        <TimeMenu />
+        <span className="mx-1 h-6 w-px bg-line" />
+        <div className="relative" ref={menu}>
+          <button aria-label="Notifications" className="icon-btn relative" onClick={() => {
+            setOpen(!open)
+            if (!open && unread) run(() => api.markRead('notifications'), { quiet: true })
+          }}>
+            <Bell size={16} />
+            {unread > 0 && <span className="num absolute right-1 top-1 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-down px-0.5 text-[9px] font-semibold text-white">{unread > 9 ? '9+' : unread}</span>}
           </button>
-        ))}
-      </div>
-
-      <div className="relative flex items-center gap-1" ref={menu}>
-        <button aria-label="Notifications" onClick={() => {
-          setOpen(!open)
-          if (!open && unread) run(() => api.markRead('notifications'), { quiet: true })
-        }} className="relative rounded-md p-2 text-txt-dim hover:bg-ink-750 hover:text-txt">
-          <Bell size={17} />
-          {unread > 0 && (
-            <span className="num absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-down px-1 text-[9px] font-bold text-white">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </button>
-        <button aria-label="Save / load" onClick={() => setModal({ kind: 'saves' })} className="rounded-md p-2 text-txt-dim hover:bg-ink-750 hover:text-txt"><Save size={17} /></button>
-        <button aria-label="Settings" onClick={() => setModal({ kind: 'settings' })} className="rounded-md p-2 text-txt-dim hover:bg-ink-750 hover:text-txt"><Settings size={17} /></button>
-        {open && (
-          <div className="panel absolute right-0 top-11 w-96 animate-fadeIn overflow-hidden">
-            <div className="border-b border-line px-3 py-2 label">Notifications</div>
-            <div className="max-h-[420px] overflow-y-auto">
-              {s.notifications.length === 0 && <div className="p-4 text-xs text-txt-mute">Nothing yet.</div>}
-              {s.notifications.map((n) => (
-                <div key={n.id} className="border-b border-line/60 px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <span className={clsx('text-2xs font-bold uppercase tracking-wider', NOTIF_TONE[n.kind] ?? 'text-info')}>{n.title}</span>
-                    <span className="num text-2xs text-txt-mute">{gameTime(n.time)}</span>
+          {open && (
+            <div className="menu absolute right-0 top-10 w-96 !py-0">
+              <div className="border-b border-line px-3 py-2 text-xs font-medium text-txt-dim">Notifications</div>
+              <div className="max-h-[420px] overflow-y-auto">
+                {s.notifications.length === 0 && <div className="p-4 text-xs text-txt-mute">Nothing yet.</div>}
+                {s.notifications.map((n) => (
+                  <div key={n.id} className="border-b border-line/60 px-3 py-2 last:border-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={clsx('text-xs font-medium', NOTIF_TONE[n.kind] ?? 'text-txt')}>{n.title}</span>
+                      <span className="num shrink-0 text-2xs text-txt-mute">{gameTime(n.time)}</span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-txt-dim">{n.body}</div>
                   </div>
-                  <div className="mt-0.5 text-xs text-txt-dim">{n.body}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+        <button aria-label="Save / load" className="icon-btn" onClick={() => setModal({ kind: 'saves' })}><Save size={16} /></button>
+        <button aria-label="Settings" className="icon-btn" onClick={() => setModal({ kind: 'settings' })}><Settings size={16} /></button>
       </div>
     </header>
   )
@@ -145,9 +174,11 @@ export function TopBar() {
 const NOTIF_TONE: Record<string, string> = {
   RISK_WARNING: 'text-down',
   MARKET_ALERT: 'text-warn',
+  PRICE_ALERT: 'text-warn',
   TARGET_UPDATE: 'text-gold',
   BREAKING: 'text-info',
   CEO_MESSAGE: 'text-violet',
   TRADE: 'text-up',
   OPPORTUNITY: 'text-gold',
+  RESEARCH: 'text-info',
 }

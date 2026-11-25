@@ -1,203 +1,127 @@
 import clsx from 'clsx'
-import {
-  BarChart3, Briefcase, CalendarClock, CandlestickChart, ChevronsRight, Clock, FastForward, FileSearch, Gauge,
-  LayoutDashboard, Newspaper, Palmtree, ShoppingCart, SkipForward, Sunrise, Trophy, Users, Wallet,
-} from 'lucide-react'
-import type { ReactNode } from 'react'
-import { useGame, useGameState, useLiveValue } from '../../game/GameContext'
-import { num, pct, toneClass } from '../../game/format'
-import { api } from '../../services/api'
-import type { IndexRow, Page } from '../../types/game'
-import { Bar, Sparkline } from '../common/ui'
+import { Bell, CandlestickChart, Search, Wifi, WifiOff, X } from 'lucide-react'
+import { memo, useMemo, useState } from 'react'
+import { useGame, useGameState } from '../../game/GameContext'
+import { money, pct } from '../../game/format'
+import { useLiveNav } from '../../game/live'
+import type { IndexRow, StockRow } from '../../types/game'
+import { LiveChange, LiveNum } from '../market/Quote'
 
-const NAV: { page: Page; label: string; icon: ReactNode }[] = [
-  { page: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
-  { page: 'markets', label: 'Markets', icon: <CandlestickChart size={16} /> },
-  { page: 'portfolio', label: 'Portfolio', icon: <Wallet size={16} /> },
-  { page: 'research', label: 'Research', icon: <FileSearch size={16} /> },
-  { page: 'trading', label: 'Trading', icon: <ShoppingCart size={16} /> },
-  { page: 'news', label: 'News', icon: <Newspaper size={16} /> },
-  { page: 'team', label: 'Team', icon: <Users size={16} /> },
-  { page: 'career', label: 'Career', icon: <Trophy size={16} /> },
-  { page: 'performance', label: 'Performance', icon: <BarChart3 size={16} /> },
-]
-
-export function Sidebar() {
-  const { page, setPage, setModal } = useGame()
-  const s = useGameState()
-  const unreadMsgs = s.messages.filter((m) => !m.read).length
-  const openDeals = s.opportunities.filter((o) => o.status === 'OPEN').length
-  const riskTone = { LOW: 'up', MEDIUM: 'info', HIGH: 'warn', CRITICAL: 'down' }[s.risk.level] as 'up' | 'info' | 'warn' | 'down'
-  return (
-    <nav className="flex w-[196px] shrink-0 flex-col border-r border-line bg-ink-900/70">
-      <ul className="flex-1 space-y-0.5 p-2">
-        {NAV.map((n) => {
-          const badge = n.page === 'team' ? unreadMsgs : n.page === 'trading' ? openDeals : 0
-          return (
-            <li key={n.page}>
-              <button
-                onClick={() => setPage(n.page)}
-                className={clsx(
-                  'group relative flex h-9 w-full items-center gap-3 rounded-md px-3 text-[13px] font-medium transition',
-                  page === n.page ? 'bg-info-soft text-txt' : 'text-txt-dim hover:bg-ink-800 hover:text-txt',
-                )}
-              >
-                {page === n.page && <span className="absolute left-0 top-1.5 h-6 w-[3px] rounded-r bg-info shadow-glowInfo" />}
-                <span className={page === n.page ? 'text-info' : 'text-txt-mute group-hover:text-txt-dim'}>{n.icon}</span>
-                {n.label}
-                {badge > 0 && <span className="num ml-auto rounded-full bg-gold/90 px-1.5 text-[10px] font-bold text-ink-950">{badge}</span>}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-      <div className="space-y-2 border-t border-line p-3">
-        <div className="rounded-md border border-line bg-ink-850 p-2.5">
-          <div className="flex items-center justify-between">
-            <span className="label">Risk</span>
-            <span className={clsx('text-2xs font-bold', `text-${riskTone}`)}>{s.risk.level}</span>
-          </div>
-          <Bar value={s.risk.score} max={100} tone={riskTone} className="mt-1.5" />
-          <div className="num mt-1 text-2xs text-txt-mute">score {s.risk.score.toFixed(0)} · DD {pct(s.portfolio.drawdown, 1, false)}</div>
-        </div>
-        <button onClick={() => setModal({ kind: 'leave' })}
-          className="w-full rounded-md border border-line bg-ink-850 p-2.5 text-left transition hover:border-violet/50">
-          <div className="flex items-center justify-between">
-            <span className="label">Paid leave</span>
-            <Palmtree size={13} className="text-violet" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-1">
-            <span className="num text-lg font-bold text-txt">{s.leave.remaining}</span>
-            <span className="text-2xs text-txt-mute">of {s.leave.allowance} days left</span>
-          </div>
-          <Bar value={s.leave.used} max={s.leave.allowance} tone="violet" className="mt-1" />
-        </button>
-      </div>
-    </nav>
-  )
-}
+const INDEX_KEYS = ['BH50', 'DL30', 'BKX', 'BVIX']
 
 function IndexCell({ idx }: { idx: IndexRow }) {
-  const { openSymbol } = useGame()
-  const v = useLiveValue(idx.key, idx.value)
-  const chg = idx.prev_close ? v / idx.prev_close - 1 : 0
-  const decimals = idx.key === 'USDINR' ? 4 : 2
+  const { openSymbol, symbol } = useGame()
   return (
-    <button onClick={() => openSymbol(idx.key, 'dashboard')}
-      className="flex min-w-[168px] flex-1 items-center justify-between gap-2 border-r border-line px-3 py-1.5 text-left transition hover:bg-ink-800">
-      <div className="min-w-0">
-        <div className="truncate text-2xs font-bold tracking-wider text-txt-dim">{idx.name}</div>
-        <div className="num text-[13px] font-semibold text-txt">{num(v, decimals)}</div>
-        <div className={clsx('num text-2xs font-semibold', toneClass(chg))}>{pct(chg)}</div>
+    <button onClick={() => openSymbol(idx.key, 'stock')}
+      className={clsx('min-w-0 rounded px-2 py-1.5 text-left hover:bg-ink-800', symbol === idx.key && 'bg-ink-800')}>
+      <div className="truncate text-2xs text-txt-mute">{idx.name}</div>
+      <div className="flex items-baseline justify-between gap-1">
+        <LiveNum symbol={idx.key} value={idx.value} className="text-[13px] font-medium text-txt" flash={false} />
+        <LiveChange symbol={idx.key} value={idx.value} prevClose={idx.prev_close} className="text-2xs" />
       </div>
-      <Sparkline data={idx.spark} width={64} height={28} color={idx.key === 'BVIX' ? '#F5A524' : undefined} />
     </button>
   )
 }
 
-export function TickerStrip() {
-  const s = useGameState()
-  return (
-    <div className="flex shrink-0 overflow-x-auto border-b border-line bg-ink-900/60">
-      {s.indices.map((i) => <IndexCell key={i.key} idx={i} />)}
-    </div>
-  )
-}
-
-export function StatusMarquee() {
-  const s = useGameState()
-  const { openSymbol } = useGame()
-  const items = [...s.stocks, ...s.stocks]
-  return (
-    <div className="relative flex h-7 shrink-0 items-center overflow-hidden border-t border-line bg-ink-900 text-2xs">
-      <div className="z-10 flex h-full items-center gap-1.5 border-r border-line bg-ink-900 px-3 font-bold tracking-wider text-txt-mute">
-        <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-up" /> DSX · SIMULATED
-      </div>
-      <div className="flex animate-marquee whitespace-nowrap hover:[animation-play-state:paused]">
-        {items.map((st, i) => (
-          <button key={i} onClick={() => openSymbol(st.symbol, 'stock')} className="mx-3 inline-flex items-center gap-1.5 hover:text-txt">
-            <span className="font-bold text-txt-dim">{st.symbol}</span>
-            <span className="num text-txt">{num(st.price)}</span>
-            <span className={clsx('num', toneClass(st.change_pct))}>{pct(st.change_pct)}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function nextBizLabel(iso: string): string {
-  const d = new Date(iso.slice(0, 10) + 'T00:00:00Z')
-  do d.setUTCDate(d.getUTCDate() + 1)
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
-  return d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' }) + ' 09:00'
-}
-
-function ActionButton({ icon, label, cost, onClick, disabled, variant = 'default', title }: {
-  icon: ReactNode; label: string; cost?: string; onClick: () => void; disabled?: boolean
-  variant?: 'default' | 'buy' | 'sell' | 'time' | 'primary' | 'leave'; title?: string
+const WatchRow = memo(function WatchRow({ x, active, held, alert, canSell }: {
+  x: StockRow; active: boolean; held: boolean; alert: boolean; canSell: boolean
 }) {
-  const styles = {
-    default: 'border-line bg-ink-800 hover:border-ink-500 hover:bg-ink-750',
-    buy: 'border-up/40 bg-up-soft text-up hover:bg-up/20',
-    sell: 'border-down/40 bg-down-soft text-down hover:bg-down/20',
-    time: 'border-line bg-ink-800 hover:border-info/50 hover:bg-info-soft',
-    primary: 'border-info/60 bg-info/90 text-white shadow-glowInfo hover:bg-info',
-    leave: 'border-violet/40 bg-violet-soft text-violet hover:bg-violet/20',
-  }[variant]
+  const { openSymbol, setModal, openChart } = useGame()
   return (
-    <button onClick={onClick} disabled={disabled} title={title}
-      className={clsx('flex h-[50px] min-w-[92px] flex-col items-center justify-center gap-0.5 rounded-md border px-2.5 transition disabled:cursor-not-allowed disabled:opacity-35', styles)}>
-      <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide">{icon}{label}</span>
-      {cost && <span className={clsx('num text-[10px]', variant === 'primary' ? 'text-white/80' : 'text-txt-mute')}>{cost}</span>}
-    </button>
+    <li className={clsx('group relative flex h-11 cursor-pointer items-center gap-2 border-b border-line/60 px-3 hover:bg-ink-800', active && 'bg-ink-800')}
+      onClick={() => openSymbol(x.symbol, 'stock')}>
+      {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-info" />}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] font-medium text-txt">{x.symbol}</span>
+          {held && <span className="h-1.5 w-1.5 rounded-full bg-gold" title="In your portfolio" />}
+          {alert && <Bell size={10} className="text-warn" />}
+        </div>
+        <div className="truncate text-2xs text-txt-mute">{x.name}</div>
+      </div>
+      <div className="text-right group-hover:invisible">
+        <LiveNum symbol={x.symbol} value={x.price} className="block text-[13px] text-txt" />
+        <LiveChange symbol={x.symbol} value={x.price} prevClose={x.prev_close} className="text-2xs" />
+      </div>
+      <div className="invisible absolute right-2 flex gap-1 group-hover:visible" onClick={(e) => e.stopPropagation()}>
+        <button className="h-6 w-7 rounded bg-info text-xs font-semibold text-white hover:bg-info/90" title="Buy"
+          onClick={() => setModal({ kind: 'trade', side: 'BUY', symbol: x.symbol })}>B</button>
+        <button className="h-6 w-7 rounded bg-down text-xs font-semibold text-white hover:bg-down/90 disabled:opacity-30" title="Sell" disabled={!canSell}
+          onClick={() => setModal({ kind: 'trade', side: 'SELL', symbol: x.symbol })}>S</button>
+        <button className="grid h-6 w-7 place-items-center rounded border border-line bg-ink-850 text-txt-dim hover:text-txt" title="Large chart"
+          onClick={() => openChart(x.symbol)}><CandlestickChart size={13} /></button>
+      </div>
+    </li>
+  )
+})
+
+export function Watchlist({ onClose }: { onClose?: () => void }) {
+  const s = useGameState()
+  const { symbol } = useGame()
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState<'default' | 'change' | 'symbol'>('default')
+  const held = useMemo(() => new Set(s.holdings.map((h) => h.symbol)), [s.holdings])
+  const alerts = useMemo(() => new Set(s.alerts.filter((a) => a.status === 'ACTIVE').map((a) => a.symbol)), [s.alerts])
+  const rows = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    const list = s.stocks.filter((x) => !t || x.symbol.toLowerCase().includes(t) || x.name.toLowerCase().includes(t) || x.sector.toLowerCase().includes(t))
+    if (sort === 'change') list.sort((a, b) => b.change_pct - a.change_pct)
+    if (sort === 'symbol') list.sort((a, b) => a.symbol.localeCompare(b.symbol))
+    return list
+  }, [s.stocks, q, sort])
+  const idx = s.indices.filter((i) => INDEX_KEYS.includes(i.key))
+  return (
+    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-line bg-ink-900">
+      <div className="grid grid-cols-2 gap-0.5 border-b border-line p-1">
+        {idx.map((i) => <IndexCell key={i.key} idx={i} />)}
+      </div>
+      <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+        <div className="relative flex-1">
+          <Search size={13} className="absolute left-2.5 top-2.5 text-txt-mute" />
+          <input className="input h-8 pl-7 text-xs" placeholder="Search symbol or sector" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <select className="h-8 rounded border border-line bg-ink-900 px-1.5 text-2xs text-txt-dim" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort">
+          <option value="default">Default</option>
+          <option value="change">% change</option>
+          <option value="symbol">A–Z</option>
+        </select>
+        {onClose && <button className="icon-btn !h-8 !w-7" onClick={onClose} aria-label="Hide watchlist"><X size={14} /></button>}
+      </div>
+      <div className="flex items-center justify-between px-3 py-1 text-2xs text-txt-mute">
+        <span>Watchlist · {rows.length} stocks</span>
+        <span>{s.stocks.filter((x) => x.change_pct > 0).length} up · {s.stocks.filter((x) => x.change_pct < 0).length} down</span>
+      </div>
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {rows.map((x) => (
+          <WatchRow key={x.symbol} x={x} active={symbol === x.symbol} held={held.has(x.symbol)} alert={alerts.has(x.symbol)} canSell={held.has(x.symbol)} />
+        ))}
+        {rows.length === 0 && <li className="p-4 text-center text-xs text-txt-mute">No match.</li>}
+      </ul>
+    </aside>
   )
 }
 
-export function ActionBar() {
+export function StatusBar() {
   const s = useGameState()
-  const { run, busy, setModal, setPage, symbol } = useGame()
-  const c = s.clock
-  const blocked = s.popups.some((p) => p.blocking) || s.career.status !== 'ACTIVE'
-  const open = c.market_status === 'OPEN'
-  const lock = busy || blocked
-  const h = c.game_hour
-  const to = (n: number) => `→ ${String(Math.min(17, h + n)).padStart(2, '0')}:00`
-  const isFriday = c.day_of_week === 'FRIDAY'
-  const stockSymbol = s.stocks.some((x) => x.symbol === symbol) ? symbol : undefined
+  const { connected } = useGame()
+  const nav = useLiveNav(s)
+  const p = s.portfolio
+  const day = nav - (p.value - p.day_pnl)
+  const ret = nav / p.starting_capital - 1
+  const riskTone = { LOW: 'text-up', MEDIUM: 'text-txt-dim', HIGH: 'text-warn', CRITICAL: 'text-down' }[s.risk.level]
   return (
-    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-t border-line bg-ink-900/80 px-3 py-2">
-      <ActionButton icon={<ShoppingCart size={13} />} label="BUY STOCK" cost="instant" variant="buy" disabled={lock || !open}
-        title={!open ? 'Market closed' : undefined} onClick={() => setModal({ kind: 'trade', side: 'BUY', symbol: stockSymbol })} />
-      <ActionButton icon={<Briefcase size={13} />} label="SELL STOCK" cost="instant" variant="sell" disabled={lock || !open || s.holdings.length === 0}
-        onClick={() => setModal({ kind: 'trade', side: 'SELL', symbol: s.holdings.find((x) => x.symbol === symbol)?.symbol ?? s.holdings[0]?.symbol })} />
-      <ActionButton icon={<FileSearch size={13} />} label="RESEARCH" cost="1h · 3h" disabled={lock || !open}
-        onClick={() => setModal({ kind: 'research', symbol: stockSymbol })} />
-      <ActionButton icon={<Wallet size={13} />} label="PORTFOLIO" cost="view" onClick={() => setPage('portfolio')} />
-      <div className="mx-1 h-9 w-px bg-line" />
-      <ActionButton icon={<Clock size={13} />} label={open ? 'WORK 1 HOUR' : 'START DAY'} cost={open ? to(1) : `→ ${nextBizLabel(c.game_date)}`}
-        variant="primary" disabled={lock} onClick={() => run(open ? api.advanceHour : api.nextBusinessDay)} />
-      <ActionButton icon={<ChevronsRight size={13} />} label="SKIP 2H" cost={to(2)} variant="time" disabled={lock || !open || c.hours_to_close < 1}
-        onClick={() => run(() => api.advanceHours(2))} />
-      <ActionButton icon={<ChevronsRight size={13} />} label="SKIP 4H" cost={to(4)} variant="time" disabled={lock || !open || c.hours_to_close < 1}
-        onClick={() => run(() => api.advanceHours(4))} />
-      <ActionButton icon={<Gauge size={13} />} label="TO CLOSE" cost="→ 17:00" variant="time" disabled={lock || !open}
-        onClick={() => run(api.advanceToClose)} />
-      <ActionButton icon={<Sunrise size={13} />} label="NEXT BUSINESS DAY" cost={`→ ${nextBizLabel(c.game_date)}`} variant="time" disabled={lock}
-        onClick={() => run(api.nextBusinessDay)} />
-      {isFriday && (
-        <ActionButton icon={<SkipForward size={13} />} label="SKIP WEEKEND" cost="→ Mon 09:00" variant="time" disabled={lock}
-          onClick={() => run(api.skipWeekend)} />
-      )}
-      <ActionButton icon={<FastForward size={13} />} label="NEXT WEEK" cost="→ Mon 09:00" variant="time" disabled={lock}
-        onClick={() => run(api.nextWeek)} />
-      <div className="mx-1 h-9 w-px bg-line" />
-      <ActionButton icon={<Palmtree size={13} />} label="TAKE LEAVE" cost={`${s.leave.remaining}d left`} variant="leave" disabled={lock}
-        onClick={() => setModal({ kind: 'leave' })} />
-      <div className="ml-auto flex items-center gap-2 pl-3 text-2xs text-txt-mute">
-        <CalendarClock size={13} />
-        <span className="num">{s.stats.hours_worked}h worked · {s.stats.hours_skipped}h skipped</span>
-      </div>
-    </div>
+    <footer className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-line bg-ink-900 px-3 text-2xs text-txt-mute [scrollbar-width:none]">
+      <span className={clsx('flex items-center gap-1', connected ? 'text-txt-mute' : 'text-down')}>
+        {connected ? <Wifi size={12} /> : <WifiOff size={12} />}{connected ? 'Live' : 'Reconnecting…'}
+      </span>
+      <span>Day {Math.min(s.clock.quarter_day, s.clock.quarter_days)} of {s.clock.quarter_days} · Q{s.clock.quarter} · Year {s.clock.career_year}</span>
+      <span>Speed {s.live.speed}x</span>
+      <span className="ml-auto">Portfolio <span className="num text-txt">{money(nav)}</span> <span className={clsx('num', ret >= 0 ? 'text-up' : 'text-down')}>{pct(ret)}</span></span>
+      <span>Today <span className={clsx('num', day >= 0 ? 'text-up' : 'text-down')}>{money(day, { signed: true })}</span></span>
+      <span>Cash <span className="num text-txt">{money(p.cash)}</span></span>
+      <span>Drawdown <span className={clsx('num', p.drawdown > s.career.max_drawdown_limit * 0.7 ? 'text-down' : 'text-txt')}>{pct(p.drawdown, 2, false)}</span></span>
+      <span>Risk <span className={riskTone}>{s.risk.level.toLowerCase()}</span></span>
+      <span>Target <span className="num text-txt">{money(p.target_value)}</span></span>
+    </footer>
   )
 }

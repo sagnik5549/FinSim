@@ -79,7 +79,7 @@ export default function Markets() {
           </thead>
           <tbody>
             {rows.map((x) => <Row key={x.symbol} x={x} onOpen={() => openSymbol(x.symbol, 'stock')}
-              onBuy={() => setModal({ kind: 'trade', side: 'BUY', symbol: x.symbol })} canTrade={s.clock.market_status === 'OPEN'} />)}
+              onBuy={() => setModal({ kind: 'trade', side: 'BUY', symbol: x.symbol })} />)}
           </tbody>
         </table>
       </Panel>
@@ -87,12 +87,12 @@ export default function Markets() {
   )
 }
 
-function Row({ x, onOpen, onBuy, canTrade }: { x: StockRow; onOpen: () => void; onBuy: () => void; canTrade: boolean }) {
+function Row({ x, onOpen, onBuy }: { x: StockRow; onOpen: () => void; onBuy: () => void }) {
   return (
     <tr className="table-row cursor-pointer" onClick={onOpen}>
       <td>
         <div className="flex items-center gap-2">
-          <span className="w-12 font-bold text-txt">{x.symbol}</span>
+          <span className="w-12 font-semibold text-txt">{x.symbol}</span>
           <span className="truncate text-txt-dim">{x.name}</span>
           {x.held && <Badge tone="gold">Held</Badge>}
         </div>
@@ -104,7 +104,7 @@ function Row({ x, onOpen, onBuy, canTrade }: { x: StockRow; onOpen: () => void; 
       <td className="num text-right">{(x.volatility * 100).toFixed(2)}%</td>
       <td className={clsx('num text-right', x.momentum > 0.2 ? 'text-up' : x.momentum < -0.2 ? 'text-down' : 'text-txt-dim')}>{x.momentum > 0 ? '+' : ''}{num(x.momentum, 2)}</td>
       <td className={clsx('num text-right', x.valuation > 0.7 ? 'text-warn' : x.valuation < 0.35 ? 'text-up' : 'text-txt')}>{x.pe ? `${x.pe.toFixed(1)}×` : '—'}</td>
-      <td className="text-right"><Badge tone={sentimentTone(x.sentiment_label)}>{x.sentiment_label}</Badge></td>
+      <td className="text-right"><Badge tone={sentimentTone(x.sentiment_label)}>{x.sentiment_label.toLowerCase()}</Badge></td>
       <td className="text-right">
         <div className="ml-auto flex w-16 items-center gap-1.5">
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-700">
@@ -113,10 +113,10 @@ function Row({ x, onOpen, onBuy, canTrade }: { x: StockRow; onOpen: () => void; 
           <span className="num w-5 text-2xs text-txt-dim">{Math.round(x.risk)}</span>
         </div>
       </td>
-      <td className="num text-right text-txt-dim">₹{num(x.market_cap_cr / 1000, 1)}K Cr</td>
-      <td className="text-right"><Sparkline data={x.spark} width={70} height={22} className="ml-auto" /></td>
+      <td className="num whitespace-nowrap text-right text-txt-dim">₹{num(x.market_cap_cr / 1000, 1)}K Cr</td>
+      <td className="text-right"><Sparkline data={x.spark} width={70} height={22} className="ml-auto" fill={false} /></td>
       <td className="text-right" onClick={(e) => e.stopPropagation()}>
-        <Button size="sm" variant="buy" disabled={!canTrade} onClick={onBuy}>Buy</Button>
+        <Button size="sm" variant="buy" onClick={onBuy}>Buy</Button>
       </td>
     </tr>
   )

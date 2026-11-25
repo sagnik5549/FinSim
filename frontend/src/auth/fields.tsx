@@ -5,7 +5,7 @@ import { ApiError } from '../services/api'
 /** 6-digit one-time code box: digits only, autofills from SMS/email suggestions where supported. */
 export function CodeInput({ value, onChange, autoFocus }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
   return (
-    <input className="input num mt-1 text-center text-xl tracking-[0.6em]" inputMode="numeric" autoComplete="one-time-code"
+    <input className="input num mt-1 text-center text-xl" inputMode="numeric" autoComplete="one-time-code"
       required pattern="\d{6}" maxLength={6} placeholder="••••••" value={value} autoFocus={autoFocus}
       aria-label="6-digit code" onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 6))} />
   )
