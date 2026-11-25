@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, StrictInt
 
@@ -19,6 +19,39 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+
+Code = Annotated[str, Field(pattern=r"^\s*\d{6}\s*$")]
+NewPassword = Annotated[str, Field(min_length=8, max_length=128)]
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    code: Code
+    new_password: NewPassword
+
+
+class CodeRequest(BaseModel):
+    purpose: Literal["change_email", "change_password"]
+    new_email: Optional[str] = Field(default=None, max_length=254)
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: str = Field(min_length=3, max_length=254)
+    code: Code
+
+
+class ChangePasswordRequest(BaseModel):
+    code: Code
+    new_password: NewPassword
+
+
+class ProfileRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class GoogleLoginRequest(BaseModel):

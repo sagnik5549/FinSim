@@ -8,7 +8,7 @@ def current_account(authorization: str | None = Header(default=None)) -> dict:
     """Token payload of the signed-in user: {"sub": account_id, "pid": player_id, "exp": ...}."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "Please sign in."})
-    return auth.read_token(authorization[7:].strip())
+    return auth.authenticate(authorization[7:].strip())
 
 
 def current_player(account: dict = Depends(current_account)) -> str:

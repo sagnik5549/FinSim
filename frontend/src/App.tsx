@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react'
+import { AccountModal } from './components/modals/AccountModal'
 import { ExecutedModal, TradeTicket } from './components/modals/TradeTicket'
 import { PopupHost } from './components/modals/Popups'
 import { LeaveModal, SavesModal, SettingsModal, ToastHost } from './components/modals/SystemModals'
@@ -41,6 +42,7 @@ function ModalHost() {
     case 'leave': return <LeaveModal />
     case 'saves': return <SavesModal />
     case 'settings': return <SettingsModal />
+    case 'account': return <AccountModal />
   }
 }
 

@@ -50,6 +50,32 @@ class Account(Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Bumped on password change/reset and "sign out everywhere"; tokens carrying an older value are rejected.
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class EmailCode(Base):
+    """One-time 6-digit codes sent by email (password reset, email change, password change)."""
+    __tablename__ = "email_codes"
+    __table_args__ = (Index("ix_email_codes_email_purpose", "email", "purpose"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(254))
+    purpose: Mapped[str] = mapped_column(String(20))
+    account_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class RateLimit(Base):
+    """Attempt counters for sign-in and email sending, keyed like "login:<email>" or "send-ip:<ip>"."""
+    __tablename__ = "rate_limits"
+    key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    window_start: Mapped[datetime] = mapped_column(DateTime)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Game(Base):

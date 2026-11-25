@@ -9,6 +9,11 @@ interface AuthCtx {
   login: (email: string, password: string) => Promise<void>
   signup: (email: string, password: string, name: string) => Promise<void>
   loginWithGoogle: (credential: string) => Promise<void>
+  /** Sets a new password with an emailed code and signs in. */
+  resetPassword: (email: string, code: string, password: string) => Promise<void>
+  /** Takes a re-issued token (password change, sign out everywhere) without leaving the current game. */
+  renewSession: (res: AuthResponse) => void
+  updateUser: (u: User) => void
   logout: () => void
 }
 
@@ -66,6 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login: async (email, password) => accept(await authApi.login(email, password)),
       signup: async (email, password, name) => accept(await authApi.signup(email, password, name)),
       loginWithGoogle: async (credential) => accept(await authApi.google(credential)),
+      resetPassword: async (email, code, password) => accept(await authApi.resetPassword(email, code, password)),
+      renewSession: (res) => {
+        session.token = res.token
+        setUser(res.user)
+      },
+      updateUser: setUser,
       logout,
     }),
     [user, checking, googleClientId, accept, logout],

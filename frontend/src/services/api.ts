@@ -112,6 +112,16 @@ export const authApi = {
     request<AuthResponse>('POST', '/auth/signup', { email, password, name, guest_player_id: session.guestPlayerId ?? undefined }),
   google: (credential: string) =>
     request<AuthResponse>('POST', '/auth/google', { credential, guest_player_id: session.guestPlayerId ?? undefined }),
+  forgotPassword: (email: string) => request<{ sent_to: string }>('POST', '/auth/password/forgot', { email }),
+  resetPassword: (email: string, code: string, new_password: string) =>
+    request<AuthResponse>('POST', '/auth/password/reset', { email, code, new_password }),
+  requestCode: (purpose: 'change_email' | 'change_password', new_email?: string) =>
+    request<{ sent_to: string }>('POST', '/auth/code', { purpose, new_email }),
+  changeEmail: (new_email: string, code: string) => request<User>('POST', '/auth/email', { new_email, code }),
+  changePassword: (code: string, new_password: string) =>
+    request<AuthResponse>('POST', '/auth/password', { code, new_password }),
+  updateProfile: (name: string) => request<User>('POST', '/auth/profile', { name }),
+  signOutEverywhere: () => request<AuthResponse>('POST', '/auth/sign-out-everywhere'),
 }
 
 export const api = {
